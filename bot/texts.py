@@ -71,6 +71,23 @@ FAILURE_AUTH_AR = "❌ فشل التحميل: الموقع يتطلب تسجيل
 FAILURE_UNSUPPORTED_AR = "❌ فشل التحميل: المصدر غير مدعوم."
 FAILURE_GENERIC_AR = "❌ فشل التحميل (النوع: {error_type}). تواصل مع المشرف للمساعدة."
 
+ERROR_REASON_LABELS_AR = {
+    "NETWORK_ERROR": "خطأ في الاتصال بالشبكة",
+    "HTTP_ERROR": "استجابة غير متوقعة من الخادم",
+    "AUTH_ERROR": "يحتاج لتسجيل الدخول",
+    "RATE_LIMIT": "تم إيقاف التحميل مؤقتًا بسبب الحد الأقصى",
+    "EXTRACTOR_ERROR": "خطأ أثناء قراءة البيانات",
+    "EXTRACTOR_UPDATE_REQUIRED": "يحتاج لتحديث أداة التحميل",
+    "GEO_BLOCK": "محجوب حسب المنطقة",
+    "SIZE_LIMIT": "الحجم أكبر من المسموح",
+    "FORMAT_NOT_FOUND": "الجودة المطلوبة غير متوفرة",
+    "PARSER_ERROR": "تعذّر فهم الرابط",
+    "PROTECTED_CONTENT": "المحتوى محمي",
+    "UNSUPPORTED_SOURCE": "المصدر غير مدعوم",
+    "INTERNAL_ERROR": "خطأ داخلي غير متوقع",
+    "UNKNOWN": "خطأ غير معروف",
+}
+
 STATUS_LABELS_AR = {
     "PENDING": "في انتظار المعالجة ⏳",
     "QUEUED": "في قائمة الانتظار ⏳",
@@ -110,3 +127,9 @@ def status_label(status: str | None) -> str:
     if not status:
         return "غير معروف"
     return STATUS_LABELS_AR.get(status, str(status))
+
+
+def failure_reason_label(error_type: str | None) -> str:
+    if not error_type:
+        return ""
+    return ERROR_REASON_LABELS_AR.get(error_type, error_type)

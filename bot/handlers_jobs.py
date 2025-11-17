@@ -163,6 +163,10 @@ def _format_status_line(job, *, include_progress: bool = False) -> str:
     media_label = texts.media_type_label(job.job_type)
     quality_label = texts.quality_label(job.requested_quality)
     status_label = texts.status_label(job.status)
+    if job.status == JobStatus.FAILED.value and getattr(job, "error_type", None):
+        reason = texts.failure_reason_label(job.error_type)
+        if reason:
+            status_label = f"{status_label} ({reason})"
 
     if include_progress:
         percent = job.progress_percent
