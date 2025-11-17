@@ -26,7 +26,7 @@ def main() -> None:
     engine = get_engine(settings)
     init_db(engine)
     logger.info("Database initialized at %s", settings.db_path)
-    logger.info("Application initialized (Phase 1 – storage schema)")
+    logger.info("Application initialized (Phase 2 – state machine ready)")
 
 
 if __name__ == "__main__":
