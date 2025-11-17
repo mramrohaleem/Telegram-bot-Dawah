@@ -1,6 +1,7 @@
 """Settings management for environment-driven configuration."""
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 
@@ -57,26 +58,27 @@ def _get_optional_int(value: Optional[str]) -> Optional[int]:
 def load_settings() -> Settings:
     """Load settings from environment variables with validation."""
 
-    required_keys = [
-        "DB_PATH",
-        "TMP_ROOT",
-        "ARCHIVE_ROOT",
-        "AUTH_PROFILE_DIR",
-        "TELEGRAM_BOT_TOKEN",
-    ]
+    base_dir = Path(os.getenv("APP_BASE_DIR", Path.cwd()))
 
-    missing = [key for key in required_keys if not os.environ.get(key)]
-    if missing:
-        raise RuntimeError(
-            f"Missing required environment variables: {', '.join(missing)}"
-        )
+    telegram_bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not telegram_bot_token:
+        raise RuntimeError("Missing TELEGRAM_BOT_TOKEN")
+
+    db_path = Path(os.getenv("DB_PATH", base_dir / "db.sqlite3"))
+    tmp_root = Path(os.getenv("TMP_ROOT", base_dir / "tmp"))
+    archive_root = Path(os.getenv("ARCHIVE_ROOT", base_dir / "archive"))
+    auth_dir = Path(os.getenv("AUTH_PROFILE_DIR", base_dir / "auth_profiles"))
+
+    tmp_root.mkdir(parents=True, exist_ok=True)
+    archive_root.mkdir(parents=True, exist_ok=True)
+    auth_dir.mkdir(parents=True, exist_ok=True)
 
     return Settings(
-        db_path=os.environ["DB_PATH"],
-        tmp_root=os.environ["TMP_ROOT"],
-        archive_root=os.environ["ARCHIVE_ROOT"],
-        auth_profile_dir=os.environ["AUTH_PROFILE_DIR"],
-        telegram_bot_token=os.environ["TELEGRAM_BOT_TOKEN"],
+        db_path=str(db_path),
+        tmp_root=str(tmp_root),
+        archive_root=str(archive_root),
+        auth_profile_dir=str(auth_dir),
+        telegram_bot_token=telegram_bot_token,
         environment=os.environ.get("ENVIRONMENT", "dev"),
         mock_downloads=_get_bool(os.environ.get("MOCK_DOWNLOADS"), False),
         debug_mode=_get_bool(os.environ.get("DEBUG_MODE"), False),

@@ -3,8 +3,9 @@ from __future__ import annotations
 import logging
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from yt_dlp import YoutubeDL
 from yt_dlp import utils as ydl_utils
@@ -16,8 +17,21 @@ from storage.models import ErrorType, JobType
 logger = get_logger(__name__)
 
 
+@dataclass
+class FormatOption:
+    media_type: JobType
+    quality_slug: str
+    label: str
+
+
 def _build_format_selector(job_type: JobType, requested_quality: Optional[str]) -> str:
     if job_type == JobType.AUDIO:
+        if requested_quality and requested_quality.endswith("k"):
+            try:
+                abr = int(requested_quality.replace("k", ""))
+                return f"bestaudio[abr<={abr}]/bestaudio/best"
+            except ValueError:
+                pass
         return "bestaudio/best"
 
     if requested_quality and requested_quality.endswith("p"):
@@ -86,6 +100,64 @@ def _map_yt_dlp_error_to_error_type(exc: Exception) -> tuple[ErrorType, Optional
 
 
 class YouTubeDownloader(BaseDownloader):
+    def _available_heights(self, formats: Iterable[dict[str, Any]]) -> set[int]:
+        heights: set[int] = set()
+        for fmt in formats or []:
+            if fmt.get("vcodec") != "none" and fmt.get("height"):
+                try:
+                    heights.add(int(fmt["height"]))
+                except (TypeError, ValueError):
+                    continue
+        return heights
+
+    def _available_abrs(self, formats: Iterable[dict[str, Any]]) -> set[int]:
+        abrs: set[int] = set()
+        for fmt in formats or []:
+            if fmt.get("acodec") != "none" and fmt.get("abr"):
+                try:
+                    abrs.add(int(fmt["abr"]))
+                except (TypeError, ValueError):
+                    continue
+        return abrs
+
+    def get_available_formats(self, url: str) -> tuple[MetadataResult, list[FormatOption]]:
+        """Return available options for video/audio qualities."""
+
+        options = self._base_options()
+        with YoutubeDL(options) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+        metadata = MetadataResult(
+            url=url,
+            title=info.get("title"),
+            duration=info.get("duration"),
+            filesize=_extract_filesize(info),
+            thumbnail_url=info.get("thumbnail"),
+            raw_info=info,
+        )
+
+        formats: list[FormatOption] = []
+        heights = self._available_heights(info.get("formats"))
+        abrs = self._available_abrs(info.get("formats"))
+
+        if heights:
+            formats.append(FormatOption(JobType.VIDEO, "best", "🎬 فيديو – أفضل جودة"))
+            for target in (1080, 720, 480):
+                if any(h >= target for h in heights):
+                    formats.append(
+                        FormatOption(JobType.VIDEO, f"{target}p", f"🎬 فيديو – {target}p")
+                    )
+
+        if abrs:
+            formats.append(FormatOption(JobType.AUDIO, "audio_best", "🎧 صوت – أفضل جودة"))
+            for target in (192, 160, 128, 64):
+                if any(a >= target for a in abrs):
+                    formats.append(
+                        FormatOption(JobType.AUDIO, f"{target}k", f"🎧 صوت – {target} kbps")
+                    )
+
+        return metadata, formats
+
     def _base_options(self, *, cookie_file: str | None = None, target_dir: str | None = None) -> dict[str, Any]:
         outtmpl = None
         if target_dir:
