@@ -1,6 +1,7 @@
 """Main entrypoint for the Telegram Media Archiver Bot."""
 from config.settings import load_settings
 from core.logging_utils import configure_logging, get_logger
+from storage.db import get_engine, init_db
 
 
 def main() -> None:
@@ -22,7 +23,10 @@ def main() -> None:
         settings.auth_profile_dir,
         settings.db_path,
     )
-    logger.info("Application initialized (Phase 0 skeleton)")
+    engine = get_engine(settings)
+    init_db(engine)
+    logger.info("Database initialized at %s", settings.db_path)
+    logger.info("Application initialized (Phase 1 – storage schema)")
 
 
 if __name__ == "__main__":
