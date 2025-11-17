@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Optional
 
 from download.base import BaseDownloader, DownloadError, DownloadResult
+from download.generic_yt_dlp import GenericYtDlpDownloader
 from download.youtube import YouTubeDownloader
 from storage.models import ErrorType, JobType, SourceType
 
@@ -12,10 +13,19 @@ class DownloadEngine:
 
     def __init__(self) -> None:
         self._youtube = YouTubeDownloader()
+        self._generic = GenericYtDlpDownloader("generic")
 
     def get_downloader(self, source_type: SourceType) -> BaseDownloader:
         if source_type == SourceType.YOUTUBE:
             return self._youtube
+        if source_type in {
+            SourceType.FACEBOOK,
+            SourceType.ARCHIVE_ORG,
+            SourceType.ISLAMIC_SITE,
+            SourceType.DIRECT_MEDIA,
+            SourceType.GENERIC,
+        }:
+            return self._generic
 
         raise DownloadError(
             error_type=ErrorType.UNSUPPORTED_SOURCE,

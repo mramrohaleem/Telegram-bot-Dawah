@@ -96,6 +96,22 @@ class JobRepository:
         )
         return list(self.session.execute(stmt).scalars().all())
 
+    def list_cleanup_candidates(
+        self, *, cutoff: datetime, limit: int = 50
+    ) -> Sequence[Job]:
+        stmt = (
+            select(Job)
+            .where(
+                Job.status.in_([JobStatus.COMPLETED.value, JobStatus.FAILED.value]),
+                Job.is_archived.is_(False),
+                Job.file_path.is_not(None),
+                Job.updated_at < cutoff,
+            )
+            .order_by(Job.updated_at.asc())
+            .limit(limit)
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
     def count_jobs_by_status(self, status: JobStatus | str) -> int:
         stmt = select(func.count()).select_from(Job).where(Job.status == _enum_value(status))
         return int(self.session.execute(stmt).scalar_one())
@@ -121,6 +137,36 @@ class JobRepository:
         )
         return list(self.session.execute(stmt).scalars().all())
 
+    def list_failed_unnotified_jobs(self, limit: int = 20) -> Sequence[Job]:
+        stmt = (
+            select(Job)
+            .where(
+                Job.status == JobStatus.FAILED.value,
+                Job.chat_id.is_not(None),
+                Job.failure_notified_at.is_(None),
+            )
+            .order_by(Job.updated_at.asc())
+            .limit(limit)
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
+    def list_delivery_failures_needing_notice(
+        self, max_attempts: int, limit: int = 20
+    ) -> Sequence[Job]:
+        stmt = (
+            select(Job)
+            .where(
+                Job.status == JobStatus.COMPLETED.value,
+                Job.delivered_at.is_(None),
+                Job.delivery_attempts >= max_attempts,
+                Job.chat_id.is_not(None),
+                Job.failure_notified_at.is_(None),
+            )
+            .order_by(Job.updated_at.asc())
+            .limit(limit)
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
     def mark_job_delivered(
         self, job: Job, *, telegram_message_id: str | int
     ) -> None:
@@ -136,6 +182,13 @@ class JobRepository:
     def mark_delivery_failure(self, job: Job, *, error_message: str) -> None:
         job.delivery_attempts = (job.delivery_attempts or 0) + 1
         job.delivery_last_error = error_message[:255]
+        job.updated_at = datetime.utcnow()
+        self.session.add(job)
+        self.session.commit()
+        self.session.refresh(job)
+
+    def mark_failure_notified(self, job: Job) -> None:
+        job.failure_notified_at = datetime.utcnow()
         job.updated_at = datetime.utcnow()
         self.session.add(job)
         self.session.commit()
@@ -297,6 +350,9 @@ class ChatSettingsRepository:
             settings = ChatSettings(
                 chat_id=chat_id_str,
                 archive_mode=False,
+                default_job_type=JobType.VIDEO.value,
+                default_quality="best",
+                interactive_hints_enabled=False,
                 is_admin=False,
                 created_at=now,
                 updated_at=now,
@@ -329,10 +385,13 @@ class ChatSettingsRepository:
         chat_id: str | int,
         default_job_type: Optional[JobType | str],
         default_quality: Optional[str],
+        interactive_hints_enabled: Optional[bool] = None,
     ) -> ChatSettings:
         settings = self.get_or_create(chat_id)
         settings.default_job_type = _enum_value(default_job_type)
         settings.default_quality = default_quality
+        if interactive_hints_enabled is not None:
+            settings.interactive_hints_enabled = interactive_hints_enabled
         settings.updated_at = datetime.utcnow()
         self.session.add(settings)
         self.session.commit()

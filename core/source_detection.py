@@ -6,7 +6,7 @@ from storage.models import SourceType
 YOUTUBE_DOMAINS = {"youtube.com", "www.youtube.com", "youtu.be"}
 FACEBOOK_DOMAINS = {"facebook.com", "www.facebook.com", "fb.watch"}
 ARCHIVE_DOMAINS = {"archive.org", "www.archive.org"}
-TARIQ_ALLAH_DOMAINS = {
+ISLAMIC_DOMAINS = {
     "way2allah.com",
     "www.way2allah.com",
     "islamway.net",
@@ -24,8 +24,8 @@ def detect_source_type(domain: str) -> SourceType | None:
     if normalized in FACEBOOK_DOMAINS:
         return SourceType.FACEBOOK
     if normalized in ARCHIVE_DOMAINS:
-        return SourceType.ARCHIVE
-    if normalized in TARIQ_ALLAH_DOMAINS:
-        return SourceType.TARIQ_ALLAH
+        return SourceType.ARCHIVE_ORG
+    if normalized in ISLAMIC_DOMAINS:
+        return SourceType.ISLAMIC_SITE
 
     return None
