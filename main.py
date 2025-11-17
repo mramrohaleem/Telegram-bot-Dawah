@@ -4,7 +4,6 @@ import asyncio
 from bot.app import build_application
 from config.settings import load_settings
 from core.logging_utils import configure_logging, get_logger
-from storage.db import get_engine, init_db
 
 
 async def main() -> None:
@@ -26,11 +25,7 @@ async def main() -> None:
         settings.auth_profile_dir,
         settings.db_path,
     )
-    engine = get_engine(settings)
-    init_db(engine)
-    logger.info("Database initialized at %s", settings.db_path)
-
-    logger.info("Starting Telegram bot (Phase 3 – minimal /ping)")
+    logger.info("Starting Telegram bot (Phase 4 – job creation from messages)")
     application = build_application(settings)
     await application.run_polling()
 
