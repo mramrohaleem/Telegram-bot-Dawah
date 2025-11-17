@@ -45,6 +45,7 @@ class JobRepository:
         user_id: Optional[str] = None,
         chat_id: Optional[str] = None,
         auth_profile_id: Optional[str] = None,
+        commit: bool = True,
     ) -> Job:
         job = Job(
             url=url,
@@ -61,8 +62,11 @@ class JobRepository:
             updated_at=datetime.utcnow(),
         )
         self.session.add(job)
-        self.session.commit()
-        self.session.refresh(job)
+        if commit:
+            self.session.commit()
+            self.session.refresh(job)
+        else:
+            self.session.flush()
         return job
 
     def get_by_id(self, job_id: int) -> Optional[Job]:
