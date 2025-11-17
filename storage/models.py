@@ -1,5 +1,6 @@
-"""ORM models and domain enums for the storage layer."""
 from __future__ import annotations
+
+"""ORM models and domain enums for the storage layer."""
 
 from datetime import datetime
 from enum import StrEnum
