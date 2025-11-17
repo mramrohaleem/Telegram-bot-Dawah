@@ -1,0 +1,3 @@
+python-telegram-bot>=20
+SQLAlchemy>=2
+yt-dlp
