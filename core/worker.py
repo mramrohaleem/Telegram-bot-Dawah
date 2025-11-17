@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import logging
+from datetime import datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -18,6 +19,7 @@ from core.state_machine import (
 )
 from download.base import DownloadError
 from download.engine import DownloadEngine
+from core.job_service import update_job_progress
 from storage.models import ErrorType, Job, JobStatus, JobType, SourceType
 from storage.repositories import AuthProfileRepository, ChatSettingsRepository, JobRepository
 
@@ -214,6 +216,24 @@ async def _process_job(
             else None
         )
 
+        progress_callback = lambda percent, downloaded, total, speed: update_job_progress(
+            session_factory,
+            job.id,
+            progress_percent=percent,
+            downloaded_bytes=downloaded,
+            total_bytes=total,
+            speed_bps=speed,
+        )
+
+        update_job_progress(
+            session_factory,
+            job.id,
+            progress_percent=0.0,
+            downloaded_bytes=0,
+            total_bytes=None,
+            speed_bps=None,
+        )
+
         result = _engine.download_job(
             source_type=source_type,
             url=job.url,
@@ -222,13 +242,28 @@ async def _process_job(
             target_dir=target_dir,
             cookie_file=cookie_file,
             max_filesize_bytes=max_filesize_bytes,
+            progress_callback=progress_callback,
         )
 
         job.file_path = result.file_path
+        if result.filesize:
+            job.downloaded_bytes = result.filesize
+            job.total_bytes = result.filesize
+        job.progress_percent = 100.0
+        job.download_speed_bps = None
+        job.last_progress_at = datetime.utcnow()
         if result.title and not job.final_title:
             job.final_title = result.title
         job.error_type = None
         job.error_message = None
+        update_job_progress(
+            session_factory,
+            job.id,
+            progress_percent=100.0,
+            downloaded_bytes=job.downloaded_bytes,
+            total_bytes=job.total_bytes,
+            speed_bps=None,
+        )
         maybe_archive_job_file(
             settings=settings,
             job_repo=repo,

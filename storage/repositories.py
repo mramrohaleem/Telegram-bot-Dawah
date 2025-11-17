@@ -96,6 +96,37 @@ class JobRepository:
         )
         return list(self.session.execute(stmt).scalars().all())
 
+    def list_active_for_chat(self, chat_id: str | int) -> list[Job]:
+        stmt = (
+            select(Job)
+            .where(
+                Job.chat_id == str(chat_id),
+                Job.status.in_(
+                    [
+                        JobStatus.PENDING.value,
+                        JobStatus.QUEUED.value,
+                        JobStatus.RUNNING.value,
+                    ]
+                ),
+            )
+            .order_by(Job.created_at.asc())
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
+    def list_recent_completed_for_chat(
+        self, chat_id: str | int, limit: int = 3
+    ) -> list[Job]:
+        stmt = (
+            select(Job)
+            .where(
+                Job.chat_id == str(chat_id),
+                Job.status == JobStatus.COMPLETED.value,
+            )
+            .order_by(Job.updated_at.desc())
+            .limit(limit)
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
     def list_jobs_by_status(
         self, status: JobStatus | str, limit: int = 100
     ) -> Sequence[Job]:

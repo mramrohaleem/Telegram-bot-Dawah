@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Optional, Tuple
 from urllib.parse import urlparse
 
@@ -267,6 +268,20 @@ class JobService:
         finally:
             session.close()
 
+    def list_jobs_for_status_view(
+        self, chat_id: str | int, *, recent_completed_limit: int = 3
+    ) -> tuple[list[Job], list[Job]]:
+        session = self._get_session()
+        try:
+            repo = JobRepository(session)
+            active = repo.list_active_for_chat(chat_id)
+            recent_completed = repo.list_recent_completed_for_chat(
+                chat_id, limit=recent_completed_limit
+            )
+            return active, recent_completed
+        finally:
+            session.close()
+
     def _resolve_job_type(self, settings) -> JobType:
         if settings.default_job_type:
             try:
@@ -300,3 +315,41 @@ class JobService:
     ) -> str:
         quality = requested_quality or ""
         return f"{source_type.value}:{normalized_url}:{job_type.value}:{quality}"
+
+
+def update_job_progress(
+    session_factory: sessionmaker[Session],
+    job_id: int,
+    *,
+    progress_percent: Optional[float],
+    downloaded_bytes: Optional[int],
+    total_bytes: Optional[int],
+    speed_bps: Optional[float],
+) -> None:
+    """Update progress metrics for a running job."""
+
+    session = session_factory()
+    try:
+        repo = JobRepository(session)
+        job = repo.get_by_id(job_id)
+        if job is None:
+            return
+        job.progress_percent = progress_percent
+        job.downloaded_bytes = downloaded_bytes
+        job.total_bytes = total_bytes
+        job.download_speed_bps = speed_bps
+        job.last_progress_at = datetime.utcnow()
+        session.add(job)
+        session.commit()
+    except Exception as exc:  # pragma: no cover - defensive logging
+        session.rollback()
+        log_with_context(
+            logger,
+            logging.ERROR,
+            "Failed to update job progress",
+            stage="JOB_SERVICE",
+            job_id=job_id,
+            error=str(exc),
+        )
+    finally:
+        session.close()

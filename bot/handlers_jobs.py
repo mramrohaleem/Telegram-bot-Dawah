@@ -8,7 +8,7 @@ from bot import texts
 from core.job_service import JobCreationError, JobService
 from core.logging_utils import get_logger, log_with_context
 from download.youtube import FormatOption, YouTubeDownloader
-from storage.models import ChatSettings, JobType, SourceType
+from storage.models import ChatSettings, JobStatus, JobType, SourceType
 from storage.repositories import ChatSettingsRepository, JobDraftRepository
 
 logger = get_logger(__name__)
@@ -43,7 +43,7 @@ def _build_keyboard(
         )
     for opt in options:
         media_label = opt.label
-        callback = f"sel|{draft_id}|{opt.media_type.value.lower()}|{opt.quality_slug}"
+        callback = f"sel|{draft_id}|{opt.media_type.value}|{opt.quality_slug}"
         rows.append([InlineKeyboardButton(media_label, callback_data=callback)])
 
     rows.append([InlineKeyboardButton(texts.CANCEL_BUTTON_AR, callback_data=f"sel|{draft_id}|cancel")])
@@ -73,6 +73,117 @@ def _update_draft_title(draft_id: int, title: Optional[str], session_factory) ->
             session.commit()
     finally:
         session.close()
+
+
+def _build_settings_keyboard(settings: ChatSettings) -> InlineKeyboardMarkup:
+    def mark(label: str, selected: bool) -> str:
+        return f"{'✅ ' if selected else ''}{label}"
+
+    default_type = settings.default_job_type
+    default_quality = settings.default_quality
+
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                mark(texts.SETTINGS_DEFAULT_TYPE_VIDEO_AR, default_type == JobType.VIDEO.value),
+                callback_data="settings|type|VIDEO",
+            ),
+            InlineKeyboardButton(
+                mark(texts.SETTINGS_DEFAULT_TYPE_AUDIO_AR, default_type == JobType.AUDIO.value),
+                callback_data="settings|type|AUDIO",
+            ),
+            InlineKeyboardButton(
+                mark(texts.SETTINGS_DEFAULT_TYPE_ASK_AR, not default_type),
+                callback_data="settings|type|ASK",
+            ),
+        ]
+    ]
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                mark("📺 أفضل جودة", default_quality == "best"),
+                callback_data="settings|video_quality|best",
+            ),
+            InlineKeyboardButton(
+                mark("📺 720p", default_quality == "720p"),
+                callback_data="settings|video_quality|720p",
+            ),
+            InlineKeyboardButton(
+                mark("📺 480p", default_quality == "480p"),
+                callback_data="settings|video_quality|480p",
+            ),
+        ]
+    )
+
+    rows.append(
+        [
+            InlineKeyboardButton(
+                mark("🎧 أفضل جودة", default_quality == "audio_best"),
+                callback_data="settings|audio_quality|audio_best",
+            ),
+            InlineKeyboardButton(
+                mark("🎧 128 kbps", default_quality == "128k"),
+                callback_data="settings|audio_quality|128k",
+            ),
+        ]
+    )
+
+    archive_label = (
+        "🗃️ الحفظ في الأرشيف: تشغيل ✅"
+        if settings.archive_mode
+        else "🗃️ الحفظ في الأرشيف: إيقاف ❌"
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                archive_label, callback_data="settings|archive|toggle"
+            )
+        ]
+    )
+    rows.append([InlineKeyboardButton(texts.STATUS_BUTTON_AR, callback_data="status")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _progress_bar(percent: Optional[float]) -> str:
+    if percent is None:
+        return "[----------]"
+    filled = max(0, min(10, int(percent // 10)))
+    return f"[{'#' * filled}{'-' * (10 - filled)}]"
+
+
+def _format_speed(speed_bps: Optional[float]) -> str:
+    if not speed_bps:
+        return "--"
+    mb_per_sec = speed_bps / (1024 * 1024)
+    return f"{mb_per_sec:.1f} MB/s"
+
+
+def _format_status_line(job, *, include_progress: bool = False) -> str:
+    media_label = texts.media_type_label(job.job_type)
+    quality_label = texts.quality_label(job.requested_quality)
+    status_label = texts.status_label(job.status)
+
+    if include_progress:
+        percent = job.progress_percent
+        percent_text = "??%" if percent is None else f"{percent:.0f}%"
+        progress = f"{_progress_bar(percent)} {percent_text}"
+        speed = _format_speed(job.download_speed_bps)
+        return texts.STATUS_LINE_WITH_PROGRESS_AR.format(
+            job_id=job.id,
+            media_type=media_label,
+            quality_label=quality_label,
+            progress=progress,
+            speed=speed,
+            status_label=status_label,
+        )
+
+    return texts.STATUS_LINE_AR.format(
+        job_id=job.id,
+        media_type=media_label,
+        quality_label=quality_label,
+        status_label=status_label,
+    )
 
 
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -172,7 +283,11 @@ async def selection_callback_handler(update: Update, context: ContextTypes.DEFAU
             media_type = settings.default_job_type or JobType.VIDEO.value
             quality = settings.default_quality or "best"
         else:
-            media_type = parts[2]
+            raw_type = parts[2]
+            try:
+                media_type = JobType(raw_type).value
+            except ValueError:
+                media_type = JobType.VIDEO.value
             quality = parts[3] if len(parts) > 3 else "best"
 
         job, reused, from_archive = job_service.create_job_from_draft(
@@ -215,25 +330,27 @@ async def status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not chat:
         return
     job_service = _get_job_service(context)
-    jobs = job_service.list_recent_jobs(chat.id, limit=10)
+    active_jobs, recent_completed = job_service.list_jobs_for_status_view(chat.id)
 
-    if not jobs:
-        message_text = texts.NO_ACTIVE_JOBS_AR
+    lines: list[str] = []
+    if active_jobs:
+        lines.append(texts.STATUS_HEADER_AR)
+        for job in active_jobs:
+            include_progress = job.status in {
+                JobStatus.PENDING.value,
+                JobStatus.QUEUED.value,
+                JobStatus.RUNNING.value,
+            }
+            lines.append(_format_status_line(job, include_progress=include_progress))
     else:
-        lines = [texts.STATUS_HEADER_AR]
-        for job in jobs:
-            media_label = texts.media_type_label(job.job_type)
-            quality_label = texts.quality_label(job.requested_quality)
-            status_label = texts.status_label(job.status)
-            lines.append(
-                texts.STATUS_LINE_AR.format(
-                    job_id=job.id,
-                    media_type=media_label,
-                    quality_label=quality_label,
-                    status_label=status_label,
-                )
-            )
-        message_text = "\n".join(lines)
+        lines.append(texts.NO_ACTIVE_JOBS_AR)
+
+    if recent_completed:
+        lines.append(texts.RECENT_COMPLETED_HEADER_AR)
+        for job in recent_completed:
+            lines.append(_format_status_line(job, include_progress=False))
+
+    message_text = "\n".join(lines)
 
     if update.callback_query:
         await update.callback_query.edit_message_text(message_text)
@@ -245,41 +362,15 @@ async def settings_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     chat = update.effective_chat
     if not chat:
         return
+    session_factory = _get_session_factory(context)
+    session = session_factory()
+    try:
+        settings_repo = ChatSettingsRepository(session)
+        settings = settings_repo.get_or_create(chat.id)
+    finally:
+        session.close()
 
-    keyboard = InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    texts.SETTINGS_DEFAULT_TYPE_VIDEO_AR, callback_data="settings|type|VIDEO"
-                ),
-                InlineKeyboardButton(
-                    texts.SETTINGS_DEFAULT_TYPE_AUDIO_AR, callback_data="settings|type|AUDIO"
-                ),
-                InlineKeyboardButton(
-                    texts.SETTINGS_DEFAULT_TYPE_ASK_AR, callback_data="settings|type|ASK"
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    "📺 جودة 720p", callback_data="settings|video_quality|720p"
-                ),
-                InlineKeyboardButton(
-                    "📺 جودة 480p", callback_data="settings|video_quality|480p"
-                ),
-                InlineKeyboardButton(
-                    "📺 أفضل جودة", callback_data="settings|video_quality|best"
-                ),
-            ],
-            [
-                InlineKeyboardButton(
-                    "🎧 128 kbps", callback_data="settings|audio_quality|128k"
-                ),
-                InlineKeyboardButton(
-                    "🎧 أفضل جودة", callback_data="settings|audio_quality|audio_best"
-                ),
-            ],
-        ]
-    )
+    keyboard = _build_settings_keyboard(settings)
 
     if update.callback_query:
         await update.callback_query.edit_message_text(
@@ -301,6 +392,10 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
     if parts[0] != "settings":
         return
 
+    if len(parts) == 1:
+        await settings_handler(update, context)
+        return
+
     chat = update.effective_chat
     if not chat:
         return
@@ -310,24 +405,61 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
     try:
         repo = ChatSettingsRepository(session)
         settings = repo.get_or_create(chat.id)
-        if parts[1] == "type":
-            value = parts[2]
+        action = parts[1]
+        value = parts[2] if len(parts) > 2 else None
+        if action == "type" and value:
             if value == "ASK":
                 settings.default_job_type = None
             else:
                 settings.default_job_type = value
-        elif parts[1] == "video_quality":
-            settings.default_quality = parts[2]
+        elif action == "video_quality" and value:
+            settings.default_quality = value
             settings.default_job_type = settings.default_job_type or JobType.VIDEO.value
-        elif parts[1] == "audio_quality":
-            settings.default_quality = parts[2]
+        elif action == "audio_quality" and value:
+            settings.default_quality = value
             settings.default_job_type = settings.default_job_type or JobType.AUDIO.value
+        elif action == "archive":
+            settings.archive_mode = not settings.archive_mode
         session.add(settings)
         session.commit()
+        log_with_context(
+            logger,
+            level=logging.INFO,
+            message="Chat settings updated",
+            stage="SETTINGS",
+            chat_id=chat.id,
+            user_id=update.effective_user.id if update.effective_user else None,
+            action=action,
+            value=value,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        session.rollback()
+        log_with_context(
+            logger,
+            level=logging.ERROR,
+            message="Failed to update settings",
+            stage="SETTINGS",
+            chat_id=chat.id,
+            user_id=update.effective_user.id if update.effective_user else None,
+            error=str(exc),
+        )
+        await query.edit_message_text(texts.SETTINGS_UPDATE_ERROR_AR)
+        return
     finally:
         session.close()
 
-    await query.edit_message_text(texts.SETTINGS_UPDATED_AR)
+    session = session_factory()
+    try:
+        repo = ChatSettingsRepository(session)
+        updated_settings = repo.get_or_create(chat.id)
+    finally:
+        session.close()
+
+    keyboard = _build_settings_keyboard(updated_settings)
+    await query.edit_message_text(
+        f"{texts.SETTINGS_TITLE_AR}\n{texts.SETTINGS_UPDATED_AR}",
+        reply_markup=keyboard,
+    )
 
 
 async def rename_job_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

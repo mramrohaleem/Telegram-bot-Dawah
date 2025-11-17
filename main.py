@@ -36,30 +36,44 @@ async def main() -> None:
     session_factory = get_session_factory(engine)
 
     application = build_application(settings, session_factory=session_factory)
-    worker_task = asyncio.create_task(worker_loop(settings, session_factory))
-    delivery_task = asyncio.create_task(
-        delivery_loop(settings, session_factory, application)
-    )
+    worker_task: asyncio.Task | None = None
+    delivery_task: asyncio.Task | None = None
     cleanup_task: asyncio.Task | None = None
-    if settings.tmp_retention_days and settings.tmp_retention_days > 0:
-        cleanup_task = asyncio.create_task(
-            cleanup_loop(settings, session_factory=session_factory)
-        )
-
-    logger.info("Starting Telegram bot, worker loop, and delivery loop")
 
     try:
-        await application.run_polling()
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+        logger.info("Application started, entering idle state")
+
+        worker_task = asyncio.create_task(worker_loop(settings, session_factory))
+        delivery_task = asyncio.create_task(
+            delivery_loop(settings, session_factory, application)
+        )
+        if settings.tmp_retention_days and settings.tmp_retention_days > 0:
+            cleanup_task = asyncio.create_task(
+                cleanup_loop(settings, session_factory=session_factory)
+            )
+
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            logger.info("Main loop cancelled, shutting down")
     finally:
-        worker_task.cancel()
-        delivery_task.cancel()
-        if cleanup_task:
-            cleanup_task.cancel()
+        for task in (worker_task, delivery_task, cleanup_task):
+            if task:
+                task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
-            await worker_task
-            await delivery_task
+            if worker_task:
+                await worker_task
+            if delivery_task:
+                await delivery_task
             if cleanup_task:
                 await cleanup_task
+        if application.updater:
+            await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
 
 
 if __name__ == "__main__":

@@ -5,9 +5,15 @@ import asyncio
 import os
 from pathlib import Path
 
+import asyncio
+import logging
+import os
+from pathlib import Path
+
 from telegram import InputFile, Message
 from telegram.ext import Application
 
+from bot import texts
 from config.settings import Settings
 from core.logging_utils import get_logger, log_with_context
 from core.filename_utils import sanitize_title_to_filename
@@ -189,8 +195,8 @@ async def _notify_failures(
 
 def _build_failure_message(job: Job, *, is_delivery_failure: bool) -> str:
     if is_delivery_failure:
-        reason = job.delivery_last_error or "Delivery failed after multiple attempts."
-        return f"Delivery failed for job #{job.id}: {reason}"
+        reason = job.delivery_last_error or texts.FAILURE_DELIVERY_GENERIC_AR
+        return texts.FAILURE_DELIVERY_AR.format(job_id=job.id, reason=reason)
 
     try:
         error_type = ErrorType(job.error_type) if job.error_type else None
@@ -198,17 +204,14 @@ def _build_failure_message(job: Job, *, is_delivery_failure: bool) -> str:
         error_type = None
 
     if error_type == ErrorType.SIZE_LIMIT:
-        return "Downloading this media failed: file is too large for the configured limit."
+        return texts.FAILURE_SIZE_LIMIT_AR
     if error_type == ErrorType.GEO_BLOCK:
-        return "Downloading this media failed because it is blocked in this region."
+        return texts.FAILURE_GEO_BLOCK_AR
     if error_type == ErrorType.AUTH_ERROR:
-        return "Downloading this media failed: the site requires login or valid cookies."
+        return texts.FAILURE_AUTH_AR
     if error_type == ErrorType.UNSUPPORTED_SOURCE:
-        return "Downloading this media failed: the source is not supported."
-    return (
-        f"Downloading this media failed (type: {job.error_type or 'unknown'}). "
-        "Ask an admin with /job <id> if you need more details."
-    )
+        return texts.FAILURE_UNSUPPORTED_AR
+    return texts.FAILURE_GENERIC_AR.format(error_type=job.error_type or "unknown")
 
 
 async def _send_failure_notice(
