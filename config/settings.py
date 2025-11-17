@@ -23,6 +23,8 @@ class Settings:
     delivery_poll_interval_seconds: int = 5
     max_delivery_attempts: int = 5
     max_file_size_mb: Optional[int] = None
+    tmp_retention_days: Optional[int] = None
+    cleanup_poll_interval_seconds: int = 3600
 
 
 def _get_bool(value: Optional[str], default: bool = False) -> bool:
@@ -91,4 +93,8 @@ def load_settings() -> Settings:
             os.environ.get("MAX_DELIVERY_ATTEMPTS"), 5
         ),
         max_file_size_mb=_get_optional_int(os.environ.get("MAX_FILE_SIZE_MB")),
+        tmp_retention_days=_get_optional_int(os.environ.get("TMP_RETENTION_DAYS")),
+        cleanup_poll_interval_seconds=_get_int(
+            os.environ.get("CLEANUP_POLL_INTERVAL_SECONDS"), 3600
+        ),
     )

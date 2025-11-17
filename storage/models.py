@@ -34,8 +34,9 @@ class SourceType(StrEnum):
 
     YOUTUBE = "YOUTUBE"
     FACEBOOK = "FACEBOOK"
-    ARCHIVE = "ARCHIVE"
-    TARIQ_ALLAH = "TARIQ_ALLAH"
+    ARCHIVE_ORG = "ARCHIVE_ORG"
+    ISLAMIC_SITE = "ISLAMIC_SITE"
+    DIRECT_MEDIA = "DIRECT_MEDIA"
     GENERIC = "GENERIC"
 
 
@@ -95,6 +96,9 @@ class Job(Base):
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     error_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    failure_notified_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow
     )
@@ -155,8 +159,15 @@ class ChatSettings(Base):
 
     chat_id: Mapped[str] = mapped_column(String, primary_key=True)
     archive_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    default_job_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    default_quality: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    default_job_type: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, default=JobType.VIDEO.value
+    )
+    default_quality: Mapped[Optional[str]] = mapped_column(
+        String, nullable=True, default="best"
+    )
+    interactive_hints_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow

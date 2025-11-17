@@ -158,9 +158,15 @@ async def _process_job(
             )
             return
 
-        source_type = SourceType(job.source_type)
-        job_type = JobType(job.job_type)
-        if settings.mock_downloads or source_type != SourceType.YOUTUBE:
+        try:
+            source_type = SourceType(job.source_type)
+        except ValueError:
+            source_type = SourceType.GENERIC
+        try:
+            job_type = JobType(job.job_type)
+        except ValueError:
+            job_type = JobType.VIDEO
+        if settings.mock_downloads:
             log_with_context(
                 logger,
                 level=logging.INFO,
@@ -219,7 +225,7 @@ async def _process_job(
         )
 
         job.file_path = result.file_path
-        if result.title:
+        if result.title and not job.final_title:
             job.final_title = result.title
         job.error_type = None
         job.error_message = None
@@ -229,7 +235,9 @@ async def _process_job(
             chat_settings_repo=chat_settings_repo,
             job=job,
         )
-        mark_job_completed(session, job, metadata={"downloader": "youtube"})
+        mark_job_completed(
+            session, job, metadata={"downloader": source_type.value.lower()}
+        )
 
         if auth_profile:
             auth_repo.mark_success(auth_profile)
@@ -240,7 +248,7 @@ async def _process_job(
             stage="WORKER",
             job_id=job.id,
             file_path=result.file_path,
-            downloader="youtube",
+            downloader=source_type.value.lower(),
         )
     except DownloadError as exc:
         session.rollback()
@@ -286,11 +294,7 @@ def _handle_processing_error(
             job_id=job.id,
             error=str(exc),
         )
-        metadata = (
-            {"downloader": "youtube"}
-            if job.source_type == SourceType.YOUTUBE.value
-            else {"mock": True}
-        )
+        metadata = {"downloader": (job.source_type or "unknown").lower()}
         mark_job_failed(
             session,
             job,
@@ -332,7 +336,7 @@ def _handle_download_error(
         mark_job_failed(
             session,
             job,
-            metadata={"downloader": "youtube"},
+            metadata={"downloader": (job.source_type or "unknown").lower()},
             error_type=exc.error_type,
             error_message=str(exc),
         )

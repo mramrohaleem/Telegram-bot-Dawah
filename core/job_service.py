@@ -45,6 +45,8 @@ class JobService:
         chat_id: int | str,
         user_id: Optional[int | str],
         text: str,
+        forced_job_type: JobType | None = None,
+        forced_quality: str | None = None,
     ) -> Job:
         """Parse a Telegram message, validate URL, detect source, and create a Job."""
 
@@ -64,7 +66,7 @@ class JobService:
         source_type = detect_source_type(domain)
         if source_type is None:
             if self._is_direct_media_url(validated_url):
-                source_type = SourceType.GENERIC
+                source_type = SourceType.DIRECT_MEDIA
             else:
                 raise JobCreationError("Unsupported source for provided URL")
 
@@ -75,8 +77,12 @@ class JobService:
             event_repo = JobEventRepository(session)
 
             settings = chat_settings_repo.get_or_create(chat_id)
-            job_type = self._resolve_job_type(settings)
-            requested_quality = settings.default_quality or "best"
+            job_type = forced_job_type or self._resolve_job_type(settings)
+            requested_quality = (
+                forced_quality
+                or settings.default_quality
+                or "best"
+            )
 
             normalized_url = normalize_url(validated_url)
             job_key = self._build_job_key(
@@ -179,12 +185,14 @@ class JobService:
                 return JobType(settings.default_job_type)
             except ValueError:
                 pass
-        return JobType.AUDIO
+        return JobType.VIDEO
 
     def _is_direct_media_url(self, url: str) -> bool:
         parsed = urlparse(url)
         path = parsed.path.lower()
-        return path.endswith((".mp3", ".mp4", ".m4a", ".webm", ".wav"))
+        return path.endswith(
+            (".mp3", ".mp4", ".m4a", ".webm", ".wav", ".mkv")
+        )
 
     def _build_job_key(
         self,
