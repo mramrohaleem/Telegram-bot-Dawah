@@ -106,6 +106,41 @@ class JobRepository:
         self.session.commit()
         self.session.refresh(job)
 
+    def list_completed_undelivered_jobs(self, limit: int = 50) -> Sequence[Job]:
+        """Return completed jobs that have not been delivered to Telegram."""
+
+        stmt = (
+            select(Job)
+            .where(
+                Job.status == JobStatus.COMPLETED.value,
+                Job.delivered_at.is_(None),
+                Job.chat_id.is_not(None),
+            )
+            .order_by(Job.created_at.asc())
+            .limit(limit)
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
+    def mark_job_delivered(
+        self, job: Job, *, telegram_message_id: str | int
+    ) -> None:
+        job.delivery_attempts = (job.delivery_attempts or 0) + 1
+        job.delivered_at = datetime.utcnow()
+        job.telegram_message_id = str(telegram_message_id)
+        job.delivery_last_error = None
+        job.updated_at = datetime.utcnow()
+        self.session.add(job)
+        self.session.commit()
+        self.session.refresh(job)
+
+    def mark_delivery_failure(self, job: Job, *, error_message: str) -> None:
+        job.delivery_attempts = (job.delivery_attempts or 0) + 1
+        job.delivery_last_error = error_message[:255]
+        job.updated_at = datetime.utcnow()
+        self.session.add(job)
+        self.session.commit()
+        self.session.refresh(job)
+
 
 class JobEventRepository:
     """Repository for recording job timeline events."""

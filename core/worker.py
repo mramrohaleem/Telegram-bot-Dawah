@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import logging
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from config.settings import Settings
+from core.archive import maybe_archive_job_file
 from core.logging_utils import get_logger, log_with_context
 from core.state_machine import (
     mark_job_completed,
@@ -17,7 +19,7 @@ from core.state_machine import (
 from download.base import DownloadError
 from download.engine import DownloadEngine
 from storage.models import ErrorType, Job, JobStatus, JobType, SourceType
-from storage.repositories import AuthProfileRepository, JobRepository
+from storage.repositories import AuthProfileRepository, ChatSettingsRepository, JobRepository
 
 logger = get_logger(__name__)
 _engine = DownloadEngine()
@@ -143,6 +145,7 @@ async def _process_job(
 ) -> None:
     session = session_factory()
     repo = JobRepository(session)
+    chat_settings_repo = ChatSettingsRepository(session)
     try:
         job = repo.get_by_id(job_id)
         if job is None:
@@ -171,6 +174,12 @@ async def _process_job(
             mock_dir = os.path.join(settings.tmp_root, "mock")
             os.makedirs(mock_dir, exist_ok=True)
             job.file_path = os.path.join(mock_dir, f"{job.id}.dat")
+            maybe_archive_job_file(
+                settings=settings,
+                job_repo=repo,
+                chat_settings_repo=chat_settings_repo,
+                job=job,
+            )
             mark_job_completed(session, job, metadata={"mock": True})
             return
 
@@ -214,6 +223,12 @@ async def _process_job(
             job.final_title = result.title
         job.error_type = None
         job.error_message = None
+        maybe_archive_job_file(
+            settings=settings,
+            job_repo=repo,
+            chat_settings_repo=chat_settings_repo,
+            job=job,
+        )
         mark_job_completed(session, job, metadata={"downloader": "youtube"})
 
         if auth_profile:

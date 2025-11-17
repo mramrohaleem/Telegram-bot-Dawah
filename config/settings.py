@@ -20,6 +20,8 @@ class Settings:
     max_parallel_jobs: int = 3
     max_queue_length: int = 100
     worker_poll_interval_seconds: int = 5
+    delivery_poll_interval_seconds: int = 5
+    max_delivery_attempts: int = 5
     max_file_size_mb: Optional[int] = None
 
 
@@ -81,6 +83,12 @@ def load_settings() -> Settings:
         max_queue_length=_get_int(os.environ.get("MAX_QUEUE_LENGTH"), 100),
         worker_poll_interval_seconds=_get_int(
             os.environ.get("WORKER_POLL_INTERVAL_SECONDS"), 5
+        ),
+        delivery_poll_interval_seconds=_get_int(
+            os.environ.get("DELIVERY_POLL_INTERVAL_SECONDS"), 5
+        ),
+        max_delivery_attempts=_get_int(
+            os.environ.get("MAX_DELIVERY_ATTEMPTS"), 5
         ),
         max_file_size_mb=_get_optional_int(os.environ.get("MAX_FILE_SIZE_MB")),
     )

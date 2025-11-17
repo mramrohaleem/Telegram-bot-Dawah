@@ -5,6 +5,7 @@ import contextlib
 from bot.app import build_application
 from config.settings import load_settings
 from core.logging_utils import configure_logging, get_logger
+from bot.delivery import delivery_loop
 from core.worker import worker_loop
 from storage.db import get_engine, get_session_factory, init_db
 
@@ -35,15 +36,20 @@ async def main() -> None:
 
     application = build_application(settings, session_factory=session_factory)
     worker_task = asyncio.create_task(worker_loop(settings, session_factory))
+    delivery_task = asyncio.create_task(
+        delivery_loop(settings, session_factory, application)
+    )
 
-    logger.info("Starting Telegram bot and worker loop")
+    logger.info("Starting Telegram bot, worker loop, and delivery loop")
 
     try:
         await application.run_polling()
     finally:
         worker_task.cancel()
+        delivery_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await worker_task
+            await delivery_task
 
 
 if __name__ == "__main__":
