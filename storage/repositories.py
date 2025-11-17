@@ -1,9 +1,8 @@
 """Repository helpers for database operations."""
 from __future__ import annotations
-
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Mapping, Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,6 +11,7 @@ from storage.models import (
     AuthProfile,
     AuthProfileStatus,
     ChatSettings,
+    ErrorType,
     Job,
     JobEvent,
     JobStatus,
@@ -95,7 +95,12 @@ class JobEventRepository:
         self.session = session
 
     def add_event(
-        self, job_id: int, event_type: str, data: Optional[dict] = None
+        self,
+        job_id: int,
+        event_type: str,
+        data: Optional[dict] = None,
+        *,
+        commit: bool = True,
     ) -> JobEvent:
         event = JobEvent(
             job_id=job_id,
@@ -104,9 +109,43 @@ class JobEventRepository:
             created_at=datetime.utcnow(),
         )
         self.session.add(event)
-        self.session.commit()
-        self.session.refresh(event)
+        if commit:
+            self.session.commit()
+            self.session.refresh(event)
+        else:
+            self.session.flush()
         return event
+
+    def add_status_change_event(
+        self,
+        *,
+        job_id: int,
+        old_status: JobStatus | str,
+        new_status: JobStatus | str,
+        metadata: Optional[Mapping[str, object]] = None,
+        error_type: ErrorType | str | None = None,
+        error_message: str | None = None,
+        commit: bool = True,
+    ) -> JobEvent:
+        data: dict[str, object] = {
+            "from": _enum_value(old_status) or str(old_status),
+            "to": _enum_value(new_status) or str(new_status),
+        }
+
+        if metadata:
+            data.update(dict(metadata))
+
+        if error_type is not None:
+            data["error_type"] = _enum_value(error_type) or str(error_type)
+        if error_message is not None:
+            data["error_message"] = error_message
+
+        return self.add_event(
+            job_id=job_id,
+            event_type="STATUS_CHANGED",
+            data=data,
+            commit=commit,
+        )
 
     def list_for_job(self, job_id: int, limit: int = 100) -> list[JobEvent]:
         stmt = (
