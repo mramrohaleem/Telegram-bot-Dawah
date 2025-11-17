@@ -2,9 +2,9 @@
 from __future__ import annotations
 from datetime import datetime
 from enum import Enum
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from storage.models import (
@@ -84,6 +84,21 @@ class JobRepository:
             .limit(limit)
         )
         return list(self.session.execute(stmt).scalars().all())
+
+    def list_jobs_by_status(
+        self, status: JobStatus | str, limit: int = 100
+    ) -> Sequence[Job]:
+        stmt = (
+            select(Job)
+            .where(Job.status == _enum_value(status))
+            .order_by(Job.created_at.asc())
+            .limit(limit)
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
+    def count_jobs_by_status(self, status: JobStatus | str) -> int:
+        stmt = select(func.count()).select_from(Job).where(Job.status == _enum_value(status))
+        return int(self.session.execute(stmt).scalar_one())
 
     def save(self, job: Job) -> None:
         job.updated_at = datetime.utcnow()
