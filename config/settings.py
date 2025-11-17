@@ -20,6 +20,7 @@ class Settings:
     max_parallel_jobs: int = 3
     max_queue_length: int = 100
     worker_poll_interval_seconds: int = 5
+    max_file_size_mb: Optional[int] = None
 
 
 def _get_bool(value: Optional[str], default: bool = False) -> bool:
@@ -38,6 +39,15 @@ def _get_int(value: Optional[str], default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _get_optional_int(value: Optional[str]) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def load_settings() -> Settings:
@@ -72,4 +82,5 @@ def load_settings() -> Settings:
         worker_poll_interval_seconds=_get_int(
             os.environ.get("WORKER_POLL_INTERVAL_SECONDS"), 5
         ),
+        max_file_size_mb=_get_optional_int(os.environ.get("MAX_FILE_SIZE_MB")),
     )

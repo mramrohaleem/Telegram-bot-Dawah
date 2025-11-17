@@ -236,6 +236,17 @@ class AuthProfileRepository:
         self.session.commit()
         self.session.refresh(profile)
 
+    def get_preferred_profile_for_source(
+        self, source_type: SourceType | str
+    ) -> Optional[AuthProfile]:
+        """Return an active authentication profile for the given source type."""
+
+        stmt = select(AuthProfile).where(
+            AuthProfile.source_type == _enum_value(source_type),
+            AuthProfile.status == AuthProfileStatus.ACTIVE.value,
+        )
+        return self.session.execute(stmt).scalars().first()
+
 
 class ChatSettingsRepository:
     """Repository for chat-specific settings."""
