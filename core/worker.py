@@ -1,8 +1,8 @@
-"""Async worker loop for scheduling and processing jobs (mock processing)."""
+"""Async worker loop for scheduling and processing jobs."""
 from __future__ import annotations
 
 import asyncio
-import logging
+import os
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -14,14 +14,17 @@ from core.state_machine import (
     mark_job_queued,
     mark_job_running,
 )
-from storage.models import ErrorType, Job, JobStatus
-from storage.repositories import JobRepository
+from download.base import DownloadError
+from download.engine import DownloadEngine
+from storage.models import ErrorType, Job, JobStatus, JobType, SourceType
+from storage.repositories import AuthProfileRepository, JobRepository
 
 logger = get_logger(__name__)
+_engine = DownloadEngine()
 
 
 async def worker_loop(settings: Settings, session_factory: sessionmaker[Session]) -> None:
-    """Continuously schedule and process jobs using a mock worker pipeline."""
+    """Continuously schedule and process jobs using the download engine."""
 
     log_with_context(
         logger,
@@ -152,18 +155,81 @@ async def _process_job(
             )
             return
 
+        source_type = SourceType(job.source_type)
+        job_type = JobType(job.job_type)
+        if settings.mock_downloads or source_type != SourceType.YOUTUBE:
+            log_with_context(
+                logger,
+                level=logging.INFO,
+                message="Processing job (mock)",
+                stage="WORKER",
+                job_id=job.id,
+            )
+
+            await asyncio.sleep(1.0)
+
+            mock_dir = os.path.join(settings.tmp_root, "mock")
+            os.makedirs(mock_dir, exist_ok=True)
+            job.file_path = os.path.join(mock_dir, f"{job.id}.dat")
+            mark_job_completed(session, job, metadata={"mock": True})
+            return
+
         log_with_context(
             logger,
             level=logging.INFO,
-            message="Processing job (mock)",
+            message="Starting download for job",
             stage="WORKER",
             job_id=job.id,
+            source_type=job.source_type,
+            url=job.url,
         )
 
-        await asyncio.sleep(1.0)
+        auth_repo = AuthProfileRepository(session)
+        auth_profile = None
+        if job.auth_profile_id:
+            auth_profile = auth_repo.get_by_id(job.auth_profile_id)
+        if auth_profile is None:
+            auth_profile = auth_repo.get_preferred_profile_for_source(source_type)
 
-        job.file_path = f"/tmp/mock/{job.id}.dat"
-        mark_job_completed(session, job, metadata={"mock": True})
+        cookie_file = auth_profile.cookie_file_path if auth_profile else None
+        target_dir = os.path.join(settings.tmp_root, str(job.id))
+        max_filesize_bytes = (
+            settings.max_file_size_mb * 1024 * 1024
+            if settings.max_file_size_mb is not None
+            else None
+        )
+
+        result = _engine.download_job(
+            source_type=source_type,
+            url=job.url,
+            job_type=job_type,
+            requested_quality=job.requested_quality,
+            target_dir=target_dir,
+            cookie_file=cookie_file,
+            max_filesize_bytes=max_filesize_bytes,
+        )
+
+        job.file_path = result.file_path
+        if result.title:
+            job.final_title = result.title
+        job.error_type = None
+        job.error_message = None
+        mark_job_completed(session, job, metadata={"downloader": "youtube"})
+
+        if auth_profile:
+            auth_repo.mark_success(auth_profile)
+        log_with_context(
+            logger,
+            level=logging.INFO,
+            message="Job download completed",
+            stage="WORKER",
+            job_id=job.id,
+            file_path=result.file_path,
+            downloader="youtube",
+        )
+    except DownloadError as exc:
+        session.rollback()
+        _handle_download_error(session, repo, job_id, exc)
     except asyncio.CancelledError:
         session.rollback()
         log_with_context(
@@ -205,13 +271,56 @@ def _handle_processing_error(
             job_id=job.id,
             error=str(exc),
         )
+        metadata = (
+            {"downloader": "youtube"}
+            if job.source_type == SourceType.YOUTUBE.value
+            else {"mock": True}
+        )
         mark_job_failed(
             session,
             job,
-            metadata={"mock": True},
+            metadata=metadata,
             error_type=ErrorType.UNKNOWN,
             error_message=str(exc),
         )
     except Exception:
         session.rollback()
         logger.exception("Failed to mark job as failed after processing error")
+
+
+def _handle_download_error(
+    session: Session, repo: JobRepository, job_id: int, exc: DownloadError
+) -> None:
+    try:
+        job = repo.get_by_id(job_id)
+        if job is None:
+            log_with_context(
+                logger,
+                level=logging.ERROR,
+                message="Job disappeared during download error handling",
+                stage="WORKER",
+                job_id=job_id,
+                error=str(exc),
+            )
+            return
+
+        log_with_context(
+            logger,
+            level=logging.ERROR,
+            message="Job download failed",
+            stage="WORKER",
+            job_id=job.id,
+            error_type=exc.error_type,
+            http_status=getattr(exc, "http_status", None),
+            error=str(exc),
+        )
+        mark_job_failed(
+            session,
+            job,
+            metadata={"downloader": "youtube"},
+            error_type=exc.error_type,
+            error_message=str(exc),
+        )
+    except Exception:
+        session.rollback()
+        logger.exception("Failed to mark job as failed after download error")
