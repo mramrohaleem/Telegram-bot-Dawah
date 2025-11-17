@@ -11,6 +11,8 @@ HELP_MESSAGE_AR = (
     "يمكنك استخدام الإعدادات لتحديد اختياراتك الافتراضية."
 )
 
+PING_RESPONSE_AR = "بونج 🏓"
+
 LINK_RECEIVED_MESSAGE_AR = "استقبلت الرابط ✅\nاختار من القائمة اللي تحت:"
 
 JOB_REGISTERED_MESSAGE_AR = (
@@ -32,7 +34,11 @@ ARCHIVE_REUSE_MESSAGE_AR = (
 
 STATUS_HEADER_AR = "📥 حالة طلبات التحميل:\n"
 STATUS_LINE_AR = "#{job_id} | {media_type} | {quality_label} | {status_label}"
+STATUS_LINE_WITH_PROGRESS_AR = (
+    "#{job_id} | {media_type} | {quality_label} | {progress} | {speed} | {status_label}"
+)
 NO_ACTIVE_JOBS_AR = "لا توجد طلبات نشطة حاليًا."
+RECENT_COMPLETED_HEADER_AR = "\nأحدث الطلبات المكتملة:"
 
 ERROR_INVALID_URL_AR = "❌ مش قادر أتعامل مع الرابط ده. تأكد إنه من موقع مدعوم أو ابعته بشكل صحيح."
 ERROR_UNSUPPORTED_DOMAIN_AR = "❌ الموقع ده مش مدعوم حاليًا."
@@ -46,6 +52,7 @@ CANCEL_BUTTON_AR = "❌ إلغاء الطلب"
 
 SETTINGS_TITLE_AR = "⚙️ الإعدادات"
 SETTINGS_UPDATED_AR = "تم تحديث الإعدادات."
+SETTINGS_UPDATE_ERROR_AR = "حدث خطأ أثناء تحديث الإعدادات. حاول مرة أخرى."
 
 SETTINGS_TYPE_TITLE_AR = "🎬 نوع التحميل الافتراضي"
 SETTINGS_VIDEO_QUALITY_TITLE_AR = "📺 الجودة الافتراضية للفيديو"
@@ -55,6 +62,14 @@ SETTINGS_ARCHIVE_TITLE_AR = "🗃️ حفظ نسخة في الأرشيف افت�
 SETTINGS_DEFAULT_TYPE_VIDEO_AR = "🎬 فيديو"
 SETTINGS_DEFAULT_TYPE_AUDIO_AR = "🎧 صوت"
 SETTINGS_DEFAULT_TYPE_ASK_AR = "❓ اسأل كل مرة"
+
+FAILURE_DELIVERY_AR = "تعذّر تسليم الملف للطلب #{job_id}: {reason}"
+FAILURE_DELIVERY_GENERIC_AR = "خطأ غير معروف أثناء التسليم."
+FAILURE_SIZE_LIMIT_AR = "❌ فشل التحميل: حجم الملف أكبر من الحد المسموح."
+FAILURE_GEO_BLOCK_AR = "❌ فشل التحميل بسبب حظر جغرافي للمحتوى."
+FAILURE_AUTH_AR = "❌ فشل التحميل: الموقع يتطلب تسجيل دخول أو ملفات تعريف الارتباط."
+FAILURE_UNSUPPORTED_AR = "❌ فشل التحميل: المصدر غير مدعوم."
+FAILURE_GENERIC_AR = "❌ فشل التحميل (النوع: {error_type}). تواصل مع المشرف للمساعدة."
 
 STATUS_LABELS_AR = {
     "PENDING": "في انتظار المعالجة ⏳",

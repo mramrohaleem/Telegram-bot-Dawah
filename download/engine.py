@@ -42,6 +42,7 @@ class DownloadEngine:
         target_dir: str,
         cookie_file: Optional[str] = None,
         max_filesize_bytes: Optional[int] = None,
+        progress_callback=None,
     ) -> DownloadResult:
         downloader = self.get_downloader(source_type)
         return downloader.download(
@@ -51,4 +52,5 @@ class DownloadEngine:
             target_dir=target_dir,
             cookie_file=cookie_file,
             max_filesize_bytes=max_filesize_bytes,
+            progress_callback=progress_callback,
         )

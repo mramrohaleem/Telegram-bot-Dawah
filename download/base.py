@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from storage.models import ErrorType, JobType
 
@@ -59,5 +59,7 @@ class BaseDownloader(ABC):
         target_dir: str,
         cookie_file: str | None = None,
         max_filesize_bytes: int | None = None,
+        progress_callback: Callable[[Optional[float], Optional[int], Optional[int], Optional[float]], None]
+        | None = None,
     ) -> DownloadResult:
         ...

@@ -1,7 +1,9 @@
 """Database engine and session management utilities."""
 from __future__ import annotations
 
-from sqlalchemy import create_engine
+import logging
+
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -33,3 +35,28 @@ def init_db(engine: Engine) -> None:
     """Create all tables in the database."""
 
     Base.metadata.create_all(bind=engine)
+    _apply_lightweight_migrations(engine)
+
+
+def _apply_lightweight_migrations(engine: Engine) -> None:
+    """Ensure new columns exist when running against an existing SQLite DB."""
+
+    logger = logging.getLogger(__name__)
+    with engine.begin() as conn:
+        result = conn.execute(text("PRAGMA table_info(jobs)"))
+        columns = {row._mapping["name"] for row in result}
+
+        migrations: dict[str, str] = {
+            "progress_percent": "REAL",
+            "downloaded_bytes": "INTEGER",
+            "total_bytes": "INTEGER",
+            "download_speed_bps": "REAL",
+            "last_progress_at": "DATETIME",
+        }
+
+        for column_name, column_def in migrations.items():
+            if column_name not in columns:
+                logger.info("Applying lightweight migration to add column", extra={"column": column_name})
+                conn.execute(
+                    text(f"ALTER TABLE jobs ADD COLUMN {column_name} {column_def}")
+                )

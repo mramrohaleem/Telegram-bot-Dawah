@@ -25,7 +25,7 @@ async def ping_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
     if update.message:
-        await update.message.reply_text("pong")
+        await update.message.reply_text(texts.PING_RESPONSE_AR)
 
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

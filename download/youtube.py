@@ -5,7 +5,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 from yt_dlp import YoutubeDL
 from yt_dlp import utils as ydl_utils
@@ -57,6 +57,26 @@ def _extract_filesize(info: dict[str, Any]) -> Optional[int]:
         if fmt.get("filesize_approx"):
             return int(fmt["filesize_approx"])
     return None
+
+
+def _build_progress_hook(
+    progress_callback: Callable[[Optional[float], Optional[int], Optional[int], Optional[float]], None]
+):
+    def _hook(d: dict[str, Any]) -> None:
+        if d.get("status") != "downloading":
+            return
+        downloaded = d.get("downloaded_bytes")
+        total = d.get("total_bytes") or d.get("total_bytes_estimate")
+        speed = d.get("speed")
+        percent = None
+        if total and total > 0 and downloaded is not None:
+            percent = downloaded * 100.0 / float(total)
+        try:
+            progress_callback(percent, downloaded, total, speed)
+        except Exception:
+            logger.exception("Progress callback failed", extra={"stage": "DOWNLOAD"})
+
+    return _hook
 
 
 def _map_yt_dlp_error_to_error_type(exc: Exception) -> tuple[ErrorType, Optional[int]]:
@@ -242,6 +262,8 @@ class YouTubeDownloader(BaseDownloader):
         target_dir: str,
         cookie_file: str | None = None,
         max_filesize_bytes: int | None = None,
+        progress_callback: Callable[[Optional[float], Optional[int], Optional[int], Optional[float]], None]
+        | None = None,
     ) -> DownloadResult:
         os.makedirs(target_dir, exist_ok=True)
         metadata = self.fetch_metadata(
@@ -268,6 +290,11 @@ class YouTubeDownloader(BaseDownloader):
                     "preferredcodec": "mp3",
                     "preferredquality": "192",
                 }
+            ]
+
+        if progress_callback is not None:
+            options["progress_hooks"] = [
+                _build_progress_hook(progress_callback)
             ]
 
         log_with_context(
