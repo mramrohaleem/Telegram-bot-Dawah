@@ -1,8 +1,7 @@
-"""Orchestration helpers for creating jobs from Telegram messages."""
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session, sessionmaker
@@ -16,10 +15,11 @@ from core.url_utils import (
     normalize_url,
     validate_url,
 )
-from storage.models import Job, JobType, SourceType
+from storage.models import Job, JobDraft, JobStatus, JobType, SourceType
 from storage.repositories import (
     ChatSettingsRepository,
     JobEventRepository,
+    JobDraftRepository,
     JobRepository,
 )
 
@@ -31,7 +31,7 @@ class JobCreationError(Exception):
 
 
 class JobService:
-    """Coordinates URL parsing, validation, and job persistence."""
+    """Coordinates URL parsing, validation, drafts, and job persistence."""
 
     def __init__(self, session_factory: sessionmaker[Session]):
         self._session_factory = session_factory
@@ -39,16 +39,14 @@ class JobService:
     def _get_session(self) -> Session:
         return self._session_factory()
 
-    def create_job_from_message(
+    def create_draft_from_message(
         self,
         *,
         chat_id: int | str,
         user_id: Optional[int | str],
         text: str,
-        forced_job_type: JobType | None = None,
-        forced_quality: str | None = None,
-    ) -> Job:
-        """Parse a Telegram message, validate URL, detect source, and create a Job."""
+    ) -> JobDraft:
+        """Parse a Telegram message, validate URL, detect source, and create a draft."""
 
         if not text:
             raise JobCreationError("Message text is empty")
@@ -72,21 +70,92 @@ class JobService:
 
         session = self._get_session()
         try:
-            chat_settings_repo = ChatSettingsRepository(session)
+            draft_repo = JobDraftRepository(session)
+            draft = draft_repo.create_draft(
+                chat_id=str(chat_id),
+                user_id=str(user_id) if user_id is not None else None,
+                url=validated_url,
+                source_type=source_type,
+                url_domain=domain,
+            )
+            log_with_context(
+                logger,
+                logging.INFO,
+                "Created draft from message",
+                stage="JOB_SERVICE",
+                draft_id=draft.id,
+                chat_id=chat_id,
+                user_id=user_id,
+                source_type=source_type.value,
+                url_domain=domain,
+            )
+            return draft
+        except JobCreationError:
+            session.rollback()
+            raise
+        except Exception as exc:  # pragma: no cover - defensive logging
+            session.rollback()
+            logger.exception("Unexpected error creating draft")
+            raise JobCreationError("Unexpected error while creating job draft") from exc
+        finally:
+            session.close()
+
+    def create_job_from_message(
+        self,
+        *,
+        chat_id: int | str,
+        user_id: Optional[int | str],
+        text: str,
+        forced_job_type: JobType | None = None,
+        forced_quality: str | None = None,
+    ) -> Job:
+        """Backward-compatible helper to create a job directly from message text."""
+
+        draft = self.create_draft_from_message(
+            chat_id=chat_id,
+            user_id=user_id,
+            text=text,
+        )
+
+        session = self._get_session()
+        try:
+            settings_repo = ChatSettingsRepository(session)
+            settings = settings_repo.get_or_create(chat_id)
+            job_type = forced_job_type or self._resolve_job_type(settings)
+            requested_quality = forced_quality or settings.default_quality or "best"
+        finally:
+            session.close()
+
+        job, _, _ = self.create_job_from_draft(
+            draft,
+            media_type=job_type,
+            quality_slug=requested_quality,
+        )
+        return job
+
+    def create_job_from_draft(
+        self,
+        draft: JobDraft,
+        *,
+        media_type: JobType | str,
+        quality_slug: str,
+    ) -> Tuple[Job, bool, bool]:
+        """Create a Job from a draft while avoiding duplicates.
+
+        Returns (job, reused_existing, reused_from_archive).
+        """
+
+        job_type = self._resolve_job_type_from_input(media_type)
+        requested_quality = quality_slug or "best"
+
+        session = self._get_session()
+        try:
             job_repo = JobRepository(session)
             event_repo = JobEventRepository(session)
 
-            settings = chat_settings_repo.get_or_create(chat_id)
-            job_type = forced_job_type or self._resolve_job_type(settings)
-            requested_quality = (
-                forced_quality
-                or settings.default_quality
-                or "best"
-            )
-
-            normalized_url = normalize_url(validated_url)
+            normalized_url = normalize_url(draft.url)
             job_key = self._build_job_key(
-                source_type=source_type,
+                source_type=SourceType(draft.source_type),
                 normalized_url=normalized_url,
                 job_type=job_type,
                 requested_quality=requested_quality,
@@ -94,10 +163,17 @@ class JobService:
 
             existing_job = job_repo.get_by_job_key(job_key)
             if existing_job:
+                reused_from_archive = False
+                if (
+                    existing_job.status == JobStatus.COMPLETED.value
+                    and existing_job.file_path
+                ):
+                    reused_from_archive = True
+
                 event_repo.add_event(
                     existing_job.id,
                     "JOB_REUSED",
-                    {"url": validated_url, "job_key": job_key},
+                    {"url": draft.url, "job_key": job_key},
                     commit=False,
                 )
                 session.commit()
@@ -105,38 +181,42 @@ class JobService:
                 log_with_context(
                     logger,
                     logging.INFO,
-                    "Reusing existing job for matching job key",
+                    "Reusing existing job for draft",
                     stage="JOB_SERVICE",
                     job_id=existing_job.id,
-                    chat_id=chat_id,
-                    user_id=user_id,
-                    source_type=source_type.value,
+                    draft_id=draft.id,
+                    chat_id=draft.chat_id,
+                    user_id=draft.user_id,
+                    source_type=draft.source_type,
                     job_type=job_type.value,
                     requested_quality=requested_quality,
-                    url_domain=domain,
                     job_key=job_key,
                 )
-                return existing_job
+                return existing_job, True, reused_from_archive
 
             job = job_repo.create_job(
-                url=validated_url,
-                source_type=source_type,
+                url=draft.url,
+                source_type=SourceType(draft.source_type),
                 job_type=job_type,
                 requested_quality=requested_quality,
                 job_key=job_key,
-                user_id=str(user_id) if user_id is not None else None,
-                chat_id=str(chat_id),
+                user_id=draft.user_id,
+                chat_id=draft.chat_id,
                 commit=False,
             )
+
+            if draft.suggested_title:
+                job.final_title = draft.suggested_title
 
             event_repo.add_event(
                 job.id,
                 "JOB_CREATED",
                 {
-                    "url": validated_url,
-                    "source_type": source_type.value,
+                    "url": draft.url,
+                    "source_type": draft.source_type,
                     "job_type": job_type.value,
                     "requested_quality": requested_quality,
+                    "draft_id": draft.id,
                 },
                 commit=False,
             )
@@ -147,24 +227,24 @@ class JobService:
             log_with_context(
                 logger,
                 logging.INFO,
-                "Created job from message",
+                "Created job from draft",
                 stage="JOB_SERVICE",
                 job_id=job.id,
-                chat_id=chat_id,
-                user_id=user_id,
-                source_type=source_type.value,
+                draft_id=draft.id,
+                chat_id=draft.chat_id,
+                user_id=draft.user_id,
+                source_type=draft.source_type,
                 job_type=job_type.value,
                 requested_quality=requested_quality,
-                url_domain=domain,
                 job_key=job_key,
             )
-            return job
+            return job, False, False
         except JobCreationError:
             session.rollback()
             raise
         except Exception as exc:  # pragma: no cover - defensive logging
             session.rollback()
-            logger.exception("Unexpected error creating job")
+            logger.exception("Unexpected error creating job from draft")
             raise JobCreationError("Unexpected error while creating job") from exc
         finally:
             session.close()
@@ -179,6 +259,14 @@ class JobService:
         finally:
             session.close()
 
+    def list_recent_jobs(self, chat_id: str | int, limit: int = 10) -> list[Job]:
+        session = self._get_session()
+        try:
+            repo = JobRepository(session)
+            return repo.list_recent_for_chat(chat_id, limit=limit)
+        finally:
+            session.close()
+
     def _resolve_job_type(self, settings) -> JobType:
         if settings.default_job_type:
             try:
@@ -186,6 +274,14 @@ class JobService:
             except ValueError:
                 pass
         return JobType.VIDEO
+
+    def _resolve_job_type_from_input(self, value: JobType | str) -> JobType:
+        if isinstance(value, JobType):
+            return value
+        try:
+            return JobType(value)
+        except ValueError:
+            return JobType.VIDEO
 
     def _is_direct_media_url(self, url: str) -> bool:
         parsed = urlparse(url)

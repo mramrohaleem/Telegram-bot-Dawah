@@ -175,3 +175,23 @@ class ChatSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+
+
+class JobDraft(Base):
+    """Temporary selection holder before turning into a Job."""
+
+    __tablename__ = "job_drafts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    chat_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    user_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    url: Mapped[str] = mapped_column(String, nullable=False)
+    source_type: Mapped[str] = mapped_column(String, nullable=False)
+    url_domain: Mapped[str] = mapped_column(String, nullable=False)
+    selected_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    selected_quality_slug: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    suggested_title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow, index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

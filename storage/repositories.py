@@ -1,6 +1,7 @@
 """Repository helpers for database operations."""
 from __future__ import annotations
 from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Mapping, Optional, Sequence
 
@@ -14,6 +15,7 @@ from storage.models import (
     ErrorType,
     Job,
     JobEvent,
+    JobDraft,
     JobStatus,
     JobType,
     SourceType,
@@ -81,6 +83,15 @@ class JobRepository:
             select(Job)
             .where(Job.status == _enum_value(status))
             .order_by(Job.created_at.asc())
+            .limit(limit)
+        )
+        return list(self.session.execute(stmt).scalars().all())
+
+    def list_recent_for_chat(self, chat_id: str | int, limit: int = 10) -> list[Job]:
+        stmt = (
+            select(Job)
+            .where(Job.chat_id == str(chat_id))
+            .order_by(Job.created_at.desc())
             .limit(limit)
         )
         return list(self.session.execute(stmt).scalars().all())
@@ -262,6 +273,65 @@ class JobEventRepository:
             .limit(limit)
         )
         return list(self.session.execute(stmt).scalars().all())
+
+
+class JobDraftRepository:
+    """Repository for temporary job drafts."""
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def create_draft(
+        self,
+        *,
+        chat_id: str,
+        user_id: str | None,
+        url: str,
+        source_type: SourceType | str,
+        url_domain: str,
+        expires_at: datetime | None = None,
+        suggested_title: str | None = None,
+    ) -> JobDraft:
+        draft = JobDraft(
+            chat_id=str(chat_id),
+            user_id=str(user_id) if user_id is not None else None,
+            url=url,
+            source_type=_enum_value(source_type) or str(source_type),
+            url_domain=url_domain,
+            suggested_title=suggested_title,
+            created_at=datetime.utcnow(),
+            expires_at=expires_at or (datetime.utcnow() + timedelta(minutes=30)),
+        )
+        self.session.add(draft)
+        self.session.commit()
+        self.session.refresh(draft)
+        return draft
+
+    def get_by_id(self, draft_id: int) -> Optional[JobDraft]:
+        return self.session.get(JobDraft, draft_id)
+
+    def update_selection(
+        self, draft: JobDraft, *, media_type: JobType | str, quality_slug: str
+    ) -> JobDraft:
+        draft.selected_type = _enum_value(media_type) or str(media_type)
+        draft.selected_quality_slug = quality_slug
+        self.session.add(draft)
+        self.session.commit()
+        self.session.refresh(draft)
+        return draft
+
+    def discard(self, draft: JobDraft) -> None:
+        self.session.delete(draft)
+        self.session.commit()
+
+    def discard_expired(self) -> int:
+        cutoff = datetime.utcnow()
+        stmt = select(JobDraft).where(JobDraft.expires_at < cutoff)
+        drafts = list(self.session.execute(stmt).scalars().all())
+        for draft in drafts:
+            self.session.delete(draft)
+        self.session.commit()
+        return len(drafts)
 
 
 class AuthProfileRepository:
