@@ -25,14 +25,24 @@ class FormatOption:
 
 
 def _build_format_selector(job_type: JobType, requested_quality: Optional[str]) -> str:
+    """Build a yt-dlp format selector tuned for the requested media type.
+
+    Audio selection prefers audio-only streams (m4a when possible) to avoid
+    unnecessary muxing and reduce failure risk on hosts without ffmpeg.
+    """
+
     if job_type == JobType.AUDIO:
         if requested_quality and requested_quality.endswith("k"):
             try:
                 abr = int(requested_quality.replace("k", ""))
-                return f"bestaudio[abr<={abr}]/bestaudio/best"
+                return (
+                    f"bestaudio[abr<={abr}][ext=m4a]/"
+                    f"bestaudio[abr<={abr}]/"
+                    "bestaudio[ext=m4a]/bestaudio/best"
+                )
             except ValueError:
                 pass
-        return "bestaudio/best"
+        return "bestaudio[ext=m4a]/bestaudio/best"
 
     if requested_quality and requested_quality.endswith("p"):
         try:
@@ -280,17 +290,37 @@ class YouTubeDownloader(BaseDownloader):
                     message=f"Estimated file size {metadata.filesize} exceeds limit {max_filesize_bytes}",
                 )
 
+        if job_type == JobType.AUDIO and requested_quality and requested_quality.endswith("k"):
+            available_abrs = self._available_abrs(metadata.raw_info.get("formats", []))
+            try:
+                requested_abr = int(requested_quality.replace("k", ""))
+                if available_abrs and all(a < requested_abr for a in available_abrs):
+                    raise DownloadError(
+                        error_type=ErrorType.FORMAT_NOT_FOUND,
+                        message=f"Requested audio bitrate {requested_quality} not available",
+                    )
+            except ValueError:
+                pass
+
+        if job_type == JobType.VIDEO and requested_quality and requested_quality.endswith("p"):
+            available_heights = self._available_heights(metadata.raw_info.get("formats", []))
+            try:
+                requested_height = int(requested_quality.rstrip("p"))
+                if available_heights and all(h < requested_height for h in available_heights):
+                    raise DownloadError(
+                        error_type=ErrorType.FORMAT_NOT_FOUND,
+                        message=f"Requested video quality {requested_quality} not available",
+                    )
+            except ValueError:
+                pass
+
         format_selector = _build_format_selector(job_type, requested_quality)
         options = self._base_options(cookie_file=cookie_file, target_dir=target_dir)
         options["format"] = format_selector
+
         if job_type == JobType.AUDIO:
-            options["postprocessors"] = [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }
-            ]
+            options.setdefault("postprocessor_args", {})
+            options["postprocessor_args"]["ffmpeg"] = ["-vn"]
 
         if progress_callback is not None:
             options["progress_hooks"] = [

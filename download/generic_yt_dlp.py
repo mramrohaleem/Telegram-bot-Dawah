@@ -18,7 +18,17 @@ logger = get_logger(__name__)
 
 def _build_format_selector(job_type: JobType, requested_quality: Optional[str]) -> str:
     if job_type == JobType.AUDIO:
-        return "bestaudio/best"
+        if requested_quality and requested_quality.endswith("k"):
+            try:
+                abr = int(requested_quality.replace("k", ""))
+                return (
+                    f"bestaudio[abr<={abr}][ext=m4a]/"
+                    f"bestaudio[abr<={abr}]/"
+                    "bestaudio[ext=m4a]/bestaudio/best"
+                )
+            except ValueError:
+                pass
+        return "bestaudio[ext=m4a]/bestaudio/best"
 
     if requested_quality and requested_quality.endswith("p"):
         try:
@@ -222,13 +232,8 @@ class GenericYtDlpDownloader(BaseDownloader):
         options = self._base_options(cookie_file=cookie_file, target_dir=target_dir)
         options["format"] = _build_format_selector(job_type, requested_quality)
         if job_type == JobType.AUDIO:
-            options["postprocessors"] = [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }
-            ]
+            options.setdefault("postprocessor_args", {})
+            options["postprocessor_args"]["ffmpeg"] = ["-vn"]
 
         if progress_callback is not None:
             options["progress_hooks"] = [

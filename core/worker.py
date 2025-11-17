@@ -27,6 +27,12 @@ logger = get_logger(__name__)
 _engine = DownloadEngine()
 
 
+def _classify_processing_exception(exc: Exception) -> ErrorType:
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
+        return ErrorType.NETWORK_ERROR
+    return ErrorType.INTERNAL_ERROR
+
+
 async def worker_loop(settings: Settings, session_factory: sessionmaker[Session]) -> None:
     """Continuously schedule and process jobs using the download engine."""
 
@@ -42,8 +48,17 @@ async def worker_loop(settings: Settings, session_factory: sessionmaker[Session]
 
     try:
         while True:
-            await _schedule_pending_jobs(settings, session_factory)
-            await _start_jobs_from_queue(settings, session_factory)
+            try:
+                await _schedule_pending_jobs(settings, session_factory)
+                await _start_jobs_from_queue(settings, session_factory)
+            except Exception as exc:  # pragma: no cover - defensive guard
+                log_with_context(
+                    logger,
+                    level=logging.ERROR,
+                    message="Worker loop iteration failed",
+                    stage="WORKER",
+                    error=str(exc),
+                )
             await asyncio.sleep(settings.worker_poll_interval_seconds)
     except asyncio.CancelledError:
         log_with_context(
@@ -334,7 +349,7 @@ def _handle_processing_error(
             session,
             job,
             metadata=metadata,
-            error_type=ErrorType.UNKNOWN,
+            error_type=_classify_processing_exception(exc),
             error_message=str(exc),
         )
     except Exception:
@@ -368,11 +383,14 @@ def _handle_download_error(
             http_status=getattr(exc, "http_status", None),
             error=str(exc),
         )
+        error_type = exc.error_type or ErrorType.INTERNAL_ERROR
+        if error_type == ErrorType.UNKNOWN:
+            error_type = ErrorType.INTERNAL_ERROR
         mark_job_failed(
             session,
             job,
             metadata={"downloader": (job.source_type or "unknown").lower()},
-            error_type=exc.error_type,
+            error_type=error_type,
             error_message=str(exc),
         )
     except Exception:
