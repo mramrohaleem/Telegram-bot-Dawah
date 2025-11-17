@@ -1,6 +1,6 @@
 """Settings management for environment-driven configuration."""
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 from typing import Optional
 
 
@@ -12,6 +12,7 @@ class Settings:
     tmp_root: str
     archive_root: str
     auth_profile_dir: str
+    telegram_bot_token: str
     environment: str = "dev"
     mock_downloads: bool = False
     debug_mode: bool = False
@@ -35,6 +36,7 @@ def load_settings() -> Settings:
         "TMP_ROOT",
         "ARCHIVE_ROOT",
         "AUTH_PROFILE_DIR",
+        "TELEGRAM_BOT_TOKEN",
     ]
 
     missing = [key for key in required_keys if not os.environ.get(key)]
@@ -48,6 +50,7 @@ def load_settings() -> Settings:
         tmp_root=os.environ["TMP_ROOT"],
         archive_root=os.environ["ARCHIVE_ROOT"],
         auth_profile_dir=os.environ["AUTH_PROFILE_DIR"],
+        telegram_bot_token=os.environ["TELEGRAM_BOT_TOKEN"],
         environment=os.environ.get("ENVIRONMENT", "dev"),
         mock_downloads=_get_bool(os.environ.get("MOCK_DOWNLOADS"), False),
         debug_mode=_get_bool(os.environ.get("DEBUG_MODE"), False),

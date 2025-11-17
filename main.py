@@ -1,11 +1,14 @@
 """Main entrypoint for the Telegram Media Archiver Bot."""
+import asyncio
+
+from bot.app import build_application
 from config.settings import load_settings
 from core.logging_utils import configure_logging, get_logger
 from storage.db import get_engine, init_db
 
 
-def main() -> None:
-    """Initialize application configuration and logging."""
+async def main() -> None:
+    """Initialize application configuration, logging, and start the bot."""
 
     settings = load_settings()
     configure_logging(settings)
@@ -26,8 +29,11 @@ def main() -> None:
     engine = get_engine(settings)
     init_db(engine)
     logger.info("Database initialized at %s", settings.db_path)
-    logger.info("Application initialized (Phase 2 – state machine ready)")
+
+    logger.info("Starting Telegram bot (Phase 3 – minimal /ping)")
+    application = build_application(settings)
+    await application.run_polling()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
