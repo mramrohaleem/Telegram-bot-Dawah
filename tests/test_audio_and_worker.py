@@ -223,7 +223,7 @@ def test_progress_updates_persist(session_factory):
 
 
 def test_status_formatting_with_progress():
-    from bot.handlers_jobs import _format_status_line
+    from bot.formatting import format_job_status
 
     job = SimpleNamespace(
         id=7,
@@ -235,7 +235,7 @@ def test_status_formatting_with_progress():
         error_type=None,
     )
 
-    line = _format_status_line(job, include_progress=True)
+    line = format_job_status(job)
 
     assert "#7" in line
     assert "صوت" in line
@@ -244,7 +244,7 @@ def test_status_formatting_with_progress():
 
 
 def test_failed_status_includes_reason():
-    from bot.handlers_jobs import _format_status_line
+    from bot.formatting import format_job_status
 
     job = SimpleNamespace(
         id=9,
@@ -256,7 +256,7 @@ def test_failed_status_includes_reason():
         error_type=ErrorType.NETWORK_ERROR.value,
     )
 
-    line = _format_status_line(job, include_progress=False)
+    line = format_job_status(job)
 
     assert "فشل" in line
     assert "الشبكة" in line

@@ -6,7 +6,16 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from storage.db import Base
@@ -101,8 +110,8 @@ class Job(Base):
     error_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     progress_percent: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    downloaded_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    total_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    downloaded_bytes: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    total_bytes: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     download_speed_bps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     last_progress_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     failure_notified_at: Mapped[Optional[datetime]] = mapped_column(

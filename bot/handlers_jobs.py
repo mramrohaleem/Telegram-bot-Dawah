@@ -2,9 +2,11 @@ import logging
 from typing import Optional
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from bot import texts
+from bot.formatting import format_job_status
 from core.job_service import JobCreationError, JobService
 from core.logging_utils import get_logger, log_with_context
 from download.youtube import FormatOption, YouTubeDownloader
@@ -145,35 +147,6 @@ def _build_settings_keyboard(settings: ChatSettings) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def _format_speed(speed_bps: Optional[float]) -> str:
-    if speed_bps is None:
-        return "-"
-    mb_per_sec = speed_bps / (1024 * 1024)
-    return f"{mb_per_sec:.1f} MB/s"
-
-
-def format_job_status(job: Job) -> str:
-    media_label = texts.media_type_label(job.job_type)
-    quality_label = texts.quality_label(job.requested_quality)
-    status_label = texts.status_label(job.status)
-    if job.status == JobStatus.FAILED.value and getattr(job, "error_type", None):
-        reason = texts.failure_reason_label(job.error_type)
-        if reason:
-            status_label = f"{status_label} ({reason})"
-
-    percent = job.progress_percent
-    percent_text = "-" if percent is None else f"{percent:.0f}%"
-    speed = _format_speed(job.download_speed_bps)
-    return texts.STATUS_LINE_WITH_PROGRESS_AR.format(
-        job_id=job.id,
-        media_type=media_label,
-        quality_label=quality_label,
-        percent=percent_text,
-        speed=speed,
-        status_label=status_label,
-    )
-
-
 def _status_refresh_keyboard(job_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
@@ -200,6 +173,63 @@ def _store_status_message_reference(
         job.status_chat_id = str(chat_id)
         session.add(job)
         session.commit()
+    finally:
+        session.close()
+
+
+def _schedule_status_updates(
+    context: ContextTypes.DEFAULT_TYPE, job_id: int, chat_id: int, message_id: int
+) -> None:
+    context.job_queue.run_repeating(
+        refresh_job_status_callback,
+        interval=3.0,
+        first=3.0,
+        name=f"job-status-{job_id}",
+        data={
+            "job_id": job_id,
+            "chat_id": chat_id,
+            "message_id": message_id,
+        },
+    )
+
+
+async def refresh_job_status_callback(context: ContextTypes.DEFAULT_TYPE) -> None:
+    data = context.job.data or {}
+    job_id = data.get("job_id")
+    chat_id = data.get("chat_id")
+    message_id = data.get("message_id")
+
+    if not job_id or not chat_id or not message_id:
+        return
+
+    session_factory = context.application.bot_data.get("session_factory")
+    if session_factory is None:
+        return
+
+    session = session_factory()
+    try:
+        job = session.get(Job, job_id)
+        if not job:
+            context.job.schedule_removal()
+            return
+
+        message_text = format_job_status(job)
+        try:
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=message_text,
+                reply_markup=_status_refresh_keyboard(job.id),
+            )
+        except BadRequest as exc:
+            if "message is not modified" not in str(exc):
+                logger.warning(
+                    "Failed to edit status message",
+                    extra={"job_id": job_id, "error": str(exc)},
+                )
+
+        if job.status in (JobStatus.COMPLETED.value, JobStatus.FAILED.value):
+            context.job.schedule_removal()
     finally:
         session.close()
 
@@ -336,6 +366,12 @@ async def selection_callback_handler(update: Update, context: ContextTypes.DEFAU
     if sent_message:
         _store_status_message_reference(
             job.id, sent_message.chat_id, sent_message.message_id, session_factory
+        )
+        _schedule_status_updates(
+            context,
+            job.id,
+            sent_message.chat_id,
+            sent_message.message_id,
         )
 
 
