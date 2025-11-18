@@ -33,6 +33,7 @@ class DownloadResult:
     final_ext: str
     title: Optional[str]
     thumbnail_url: Optional[str]
+    thumbnail_path: Optional[str]
     filesize: Optional[int]
     metadata: MetadataResult
 

@@ -74,13 +74,22 @@ def test_audio_job_created_with_type_and_quality(session_factory):
 
 
 class _FakeResult(DownloadResult):
-    def __init__(self, *, url: str, file_path: str, title: str = "title", filesize: int = 1024):
+    def __init__(
+        self,
+        *,
+        url: str,
+        file_path: str,
+        title: str = "title",
+        filesize: int = 1024,
+        thumbnail_path: str | None = None,
+    ):
         super().__init__(
             url=url,
             file_path=file_path,
             final_ext=os.path.splitext(file_path)[1].lstrip("."),
             title=title,
             thumbnail_url=None,
+            thumbnail_path=thumbnail_path,
             filesize=filesize,
             metadata=None,  # type: ignore[arg-type]
         )

@@ -35,7 +35,7 @@ ARCHIVE_REUSE_MESSAGE_AR = (
 STATUS_HEADER_AR = "📥 حالة طلبات التحميل:\n"
 STATUS_LINE_AR = "#{job_id} | {media_type} | {quality_label} | {status_label}"
 STATUS_LINE_WITH_PROGRESS_AR = (
-    "#{job_id} | {media_type} | {quality_label} | {progress} | {speed} | {status_label}"
+    "#{job_id} | {media_type} | {quality_label} | {percent} | {speed} | {status_label}"
 )
 NO_ACTIVE_JOBS_AR = "لا توجد طلبات نشطة حاليًا."
 RECENT_COMPLETED_HEADER_AR = "\nأحدث الطلبات المكتملة:"

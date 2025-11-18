@@ -6,7 +6,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
+from urllib.parse import urlparse
 
+import httpx
 from yt_dlp import YoutubeDL
 from yt_dlp import utils as ydl_utils
 
@@ -67,6 +69,45 @@ def _extract_filesize(info: dict[str, Any]) -> Optional[int]:
         if fmt.get("filesize_approx"):
             return int(fmt["filesize_approx"])
     return None
+
+
+def _download_thumbnail_file(thumbnail_url: str | None, target_dir: str) -> Optional[str]:
+    if not thumbnail_url:
+        return None
+
+    try:
+        response = httpx.get(thumbnail_url, timeout=10)
+        response.raise_for_status()
+    except Exception as exc:
+        log_with_context(
+            logger,
+            level=logging.WARNING,
+            message="Failed to fetch thumbnail",
+            stage="DOWNLOAD",
+            downloader="youtube",
+            thumbnail_url=thumbnail_url,
+            error=str(exc),
+        )
+        return None
+
+    suffix = Path(urlparse(thumbnail_url).path).suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png"}:
+        suffix = ".jpg"
+    target_path = Path(target_dir) / f"thumb{suffix}"
+    try:
+        target_path.write_bytes(response.content)
+        return str(target_path)
+    except OSError as exc:
+        log_with_context(
+            logger,
+            level=logging.WARNING,
+            message="Failed to save thumbnail",
+            stage="DOWNLOAD",
+            downloader="youtube",
+            thumbnail_url=thumbnail_url,
+            error=str(exc),
+        )
+        return None
 
 
 def _build_progress_hook(
@@ -322,6 +363,8 @@ class YouTubeDownloader(BaseDownloader):
             options.setdefault("postprocessor_args", {})
             options["postprocessor_args"]["ffmpeg"] = ["-vn"]
 
+        thumbnail_path = _download_thumbnail_file(metadata.thumbnail_url, target_dir)
+
         if progress_callback is not None:
             options["progress_hooks"] = [
                 _build_progress_hook(progress_callback)
@@ -382,6 +425,7 @@ class YouTubeDownloader(BaseDownloader):
             final_ext=final_ext,
             title=info.get("title") or metadata.title,
             thumbnail_url=info.get("thumbnail") or metadata.thumbnail_url,
+            thumbnail_path=thumbnail_path,
             filesize=filesize or metadata.filesize,
             metadata=metadata,
         )
