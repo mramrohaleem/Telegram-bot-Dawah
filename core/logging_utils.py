@@ -1,7 +1,8 @@
 """Central logging configuration utilities."""
 import logging
-import logging
 import sys
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Mapping
 
 from config.settings import Settings
@@ -17,7 +18,6 @@ def configure_logging(settings: Settings) -> None:
     # Clear existing handlers to avoid duplicate logs on reconfiguration.
     root_logger.handlers.clear()
 
-    handler = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter(
         fmt=(
             "%(asctime)s level=%(levelname)s logger=%(name)s "
@@ -25,8 +25,21 @@ def configure_logging(settings: Settings) -> None:
         ),
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    handler.setFormatter(formatter)
-    root_logger.addHandler(handler)
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+    root_logger.addHandler(stream_handler)
+
+    log_dir = Path("logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    file_handler = RotatingFileHandler(
+        log_dir / "bot.log",
+        maxBytes=5 * 1024 * 1024,
+        backupCount=3,
+        encoding="utf-8",
+    )
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
 
 
 def get_logger(name: str) -> logging.Logger:

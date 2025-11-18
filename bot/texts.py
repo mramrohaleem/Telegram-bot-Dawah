@@ -15,13 +15,7 @@ PING_RESPONSE_AR = "بونج 🏓"
 
 LINK_RECEIVED_MESSAGE_AR = "استقبلت الرابط ✅\nاختار من القائمة اللي تحت:"
 
-JOB_REGISTERED_MESSAGE_AR = (
-    "✅ تم تسجيل طلبك كـ رقم #{job_id}.\n"
-    "العنوان: {title}\n"
-    "النوع: {media_type}\n"
-    "الجودة: {quality}\n"
-    "الحالة الحالية: {status_label}"
-)
+JOB_REGISTERED_BRIEF_AR = "✅ تم تسجيل طلبك كـ رقم #{job_id}."
 
 JOB_REUSED_MESSAGE_AR = (
     "ℹ️ الطلب موجود بالفعل كـ رقم #{job_id} بنفس النوع والجودة.\n"
@@ -110,6 +104,10 @@ QUALITY_LABELS_AR = {
     "128k": "128 kbps",
     "64k": "64 kbps",
 }
+
+
+def status_refresh_button(job_id: int | str) -> str:
+    return f"🔄 تحديث حالة الطلب #{job_id}"
 
 def quality_label(slug: str | None) -> str:
     if not slug:

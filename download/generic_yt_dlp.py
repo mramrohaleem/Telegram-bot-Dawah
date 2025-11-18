@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional
 from yt_dlp import YoutubeDL
 from yt_dlp import utils as ydl_utils
 
+from core.job_service import update_job_progress
 from core.logging_utils import get_logger, log_with_context
 from download.base import BaseDownloader, DownloadError, DownloadResult, MetadataResult
 from storage.models import ErrorType, JobType
@@ -56,7 +57,10 @@ def _extract_filesize(info: dict[str, Any]) -> Optional[int]:
 
 
 def _build_progress_hook(
+    session_factory,
+    job_id: Optional[int],
     progress_callback: Callable[[Optional[float], Optional[int], Optional[int], Optional[float]], None]
+    | None,
 ):
     def _hook(d: dict[str, Any]) -> None:
         if d.get("status") != "downloading":
@@ -67,10 +71,34 @@ def _build_progress_hook(
         percent = None
         if total and total > 0 and downloaded is not None:
             percent = downloaded * 100.0 / float(total)
-        try:
-            progress_callback(percent, downloaded, total, speed)
-        except Exception:
-            logger.exception("Progress callback failed", extra={"stage": "DOWNLOAD"})
+
+        log_with_context(
+            logger,
+            level=logging.DEBUG,
+            message="yt-dlp progress update",
+            stage="DOWNLOAD",
+            job_id=job_id,
+            downloaded_bytes=downloaded,
+            total_bytes=total,
+            progress_percent=percent,
+            speed_bps=speed,
+        )
+
+        if session_factory is not None and job_id is not None:
+            update_job_progress(
+                session_factory,
+                job_id,
+                progress_percent=percent,
+                downloaded_bytes=downloaded,
+                total_bytes=total,
+                speed_bps=speed,
+            )
+
+        if progress_callback is not None:
+            try:
+                progress_callback(percent, downloaded, total, speed)
+            except Exception:
+                logger.exception("Progress callback failed", extra={"stage": "DOWNLOAD"})
 
     return _hook
 
@@ -209,6 +237,8 @@ class GenericYtDlpDownloader(BaseDownloader):
         target_dir: str,
         cookie_file: str | None = None,
         max_filesize_bytes: int | None = None,
+        session_factory=None,
+        job_id: int | None = None,
         progress_callback: Callable[[Optional[float], Optional[int], Optional[int], Optional[float]], None]
         | None = None,
     ) -> DownloadResult:
@@ -235,10 +265,9 @@ class GenericYtDlpDownloader(BaseDownloader):
             options.setdefault("postprocessor_args", {})
             options["postprocessor_args"]["ffmpeg"] = ["-vn"]
 
-        if progress_callback is not None:
-            options["progress_hooks"] = [
-                _build_progress_hook(progress_callback)
-            ]
+        options["progress_hooks"] = [
+            _build_progress_hook(session_factory, job_id, progress_callback)
+        ]
 
         log_with_context(
             logger,

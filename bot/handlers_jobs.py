@@ -8,8 +8,8 @@ from bot import texts
 from core.job_service import JobCreationError, JobService
 from core.logging_utils import get_logger, log_with_context
 from download.youtube import FormatOption, YouTubeDownloader
-from storage.models import ChatSettings, JobStatus, JobType, SourceType
-from storage.repositories import ChatSettingsRepository, JobDraftRepository
+from storage.models import ChatSettings, Job, JobStatus, JobType, SourceType
+from storage.repositories import ChatSettingsRepository, JobDraftRepository, JobRepository
 
 logger = get_logger(__name__)
 
@@ -152,7 +152,7 @@ def _format_speed(speed_bps: Optional[float]) -> str:
     return f"{mb_per_sec:.1f} MB/s"
 
 
-def _format_status_line(job, *, include_progress: bool = False) -> str:
+def format_job_status(job: Job) -> str:
     media_label = texts.media_type_label(job.job_type)
     quality_label = texts.quality_label(job.requested_quality)
     status_label = texts.status_label(job.status)
@@ -172,6 +172,36 @@ def _format_status_line(job, *, include_progress: bool = False) -> str:
         speed=speed,
         status_label=status_label,
     )
+
+
+def _status_refresh_keyboard(job_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    texts.status_refresh_button(job_id),
+                    callback_data=f"status|{job_id}",
+                )
+            ]
+        ]
+    )
+
+
+def _store_status_message_reference(
+    job_id: int, chat_id: int | str, message_id: int | str, session_factory
+) -> None:
+    session = session_factory()
+    try:
+        repo = JobRepository(session)
+        job = repo.get_by_id(job_id)
+        if job is None:
+            return
+        job.status_message_id = str(message_id)
+        job.status_chat_id = str(chat_id)
+        session.add(job)
+        session.commit()
+    finally:
+        session.close()
 
 
 async def handle_media_link(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -244,9 +274,6 @@ async def selection_callback_handler(update: Update, context: ContextTypes.DEFAU
         draft_id: Optional[int] = None
         action = None
         parts = data.split("|")
-        if parts[0] == "status":
-            await status_handler(update, context)
-            return
         if parts[0] == "default":
             action = "default"
             draft_id = int(parts[1])
@@ -297,20 +324,19 @@ async def selection_callback_handler(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text(message_text)
         return
 
-    quality_label = texts.quality_label(job.requested_quality)
-    media_label = texts.media_type_label(job.job_type)
-
-    message_text = texts.JOB_REGISTERED_MESSAGE_AR.format(
-        job_id=job.id,
-        title=job.final_title or getattr(job, "title", "") or draft.url,
-        media_type=media_label,
-        quality=quality_label,
-        status_label=texts.status_label(job.status),
+    status_line = format_job_status(job)
+    message_text = "\n".join(
+        [
+            texts.JOB_REGISTERED_BRIEF_AR.format(job_id=job.id),
+            status_line,
+        ]
     )
-    keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton(texts.STATUS_BUTTON_AR, callback_data="status")]]
-    )
-    await query.edit_message_text(message_text, reply_markup=keyboard)
+    keyboard = _status_refresh_keyboard(job.id)
+    sent_message = await query.edit_message_text(message_text, reply_markup=keyboard)
+    if sent_message:
+        _store_status_message_reference(
+            job.id, sent_message.chat_id, sent_message.message_id, session_factory
+        )
 
 
 async def status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -324,14 +350,14 @@ async def status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if active_jobs:
         lines.append(texts.STATUS_HEADER_AR)
         for job in active_jobs:
-            lines.append(_format_status_line(job, include_progress=True))
+            lines.append(format_job_status(job))
     else:
         lines.append(texts.NO_ACTIVE_JOBS_AR)
 
     if recent_completed:
         lines.append(texts.RECENT_COMPLETED_HEADER_AR)
         for job in recent_completed:
-            lines.append(_format_status_line(job, include_progress=True))
+            lines.append(format_job_status(job))
 
     message_text = "\n".join(lines)
 
@@ -339,6 +365,38 @@ async def status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.callback_query.edit_message_text(message_text)
     elif update.effective_message:
         await update.effective_message.reply_text(message_text)
+
+
+async def refresh_status_callback_handler(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    data = query.data or ""
+    parts = data.split("|")
+    if len(parts) < 2:
+        return
+    try:
+        job_id = int(parts[1])
+    except ValueError:
+        return
+
+    job_service = _get_job_service(context)
+    session_factory = _get_session_factory(context)
+    job = job_service.get_job_by_id(job_id)
+    if not job:
+        await query.edit_message_text(texts.NO_ACTIVE_JOBS_AR)
+        return
+
+    message_text = format_job_status(job)
+    keyboard = _status_refresh_keyboard(job.id)
+    if query.message:
+        _store_status_message_reference(
+            job.id, query.message.chat_id, query.message.message_id, session_factory
+        )
+    await query.edit_message_text(message_text, reply_markup=keyboard)
 
 
 async def settings_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -347,7 +347,7 @@ def update_job_progress(
         else:
             percent_changed = abs(progress_percent - last_percent) >= 1.0
         time_elapsed = (now - last_at).total_seconds() if last_at else None
-        interval_elapsed = time_elapsed is None or time_elapsed >= 1.5
+        interval_elapsed = time_elapsed is None or time_elapsed >= 1.0
 
         if not force and not percent_changed and not interval_elapsed:
             return

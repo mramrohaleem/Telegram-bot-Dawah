@@ -90,6 +90,8 @@ class Job(Base):
     final_title: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     file_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     thumbnail_path: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    status_message_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    status_chat_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     delivered_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     telegram_message_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     delivery_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
