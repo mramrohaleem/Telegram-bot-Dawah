@@ -53,6 +53,8 @@ def _apply_lightweight_migrations(engine: Engine) -> None:
             "download_speed_bps": "REAL",
             "last_progress_at": "DATETIME",
             "thumbnail_path": "TEXT",
+            "status_message_id": "TEXT",
+            "status_chat_id": "TEXT",
         }
 
         for column_name, column_def in migrations.items():

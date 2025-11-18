@@ -60,6 +60,8 @@ class BaseDownloader(ABC):
         target_dir: str,
         cookie_file: str | None = None,
         max_filesize_bytes: int | None = None,
+        session_factory=None,
+        job_id: int | None = None,
         progress_callback: Callable[[Optional[float], Optional[int], Optional[int], Optional[float]], None]
         | None = None,
     ) -> DownloadResult:

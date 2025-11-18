@@ -231,15 +231,6 @@ async def _process_job(
             else None
         )
 
-        progress_callback = lambda percent, downloaded, total, speed: update_job_progress(
-            session_factory,
-            job.id,
-            progress_percent=percent,
-            downloaded_bytes=downloaded,
-            total_bytes=total,
-            speed_bps=speed,
-        )
-
         update_job_progress(
             session_factory,
             job.id,
@@ -258,7 +249,8 @@ async def _process_job(
             target_dir=target_dir,
             cookie_file=cookie_file,
             max_filesize_bytes=max_filesize_bytes,
-            progress_callback=progress_callback,
+            session_factory=session_factory,
+            job_id=job.id,
         )
 
         job.file_path = result.file_path
