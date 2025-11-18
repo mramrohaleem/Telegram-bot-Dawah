@@ -12,9 +12,9 @@ import httpx
 from yt_dlp import YoutubeDL
 from yt_dlp import utils as ydl_utils
 
-from core.job_service import update_job_progress
 from core.logging_utils import get_logger, log_with_context
 from download.base import BaseDownloader, DownloadError, DownloadResult, MetadataResult
+from download.progress import make_yt_progress_hook
 from storage.models import ErrorType, JobType
 
 logger = get_logger(__name__)
@@ -109,53 +109,6 @@ def _download_thumbnail_file(thumbnail_url: str | None, target_dir: str) -> Opti
             error=str(exc),
         )
         return None
-
-
-def _yt_progress_hook(
-    session_factory,
-    job_id: Optional[int],
-    extra_callback: Callable[[Optional[float], Optional[int], Optional[int], Optional[float]], None]
-    | None = None,
-):
-    def _hook(d: dict[str, Any]) -> None:
-        if d.get("status") != "downloading":
-            return
-        downloaded = d.get("downloaded_bytes")
-        total = d.get("total_bytes") or d.get("total_bytes_estimate")
-        speed = d.get("speed")
-        percent = None
-        if total and total > 0 and downloaded is not None:
-            percent = downloaded * 100.0 / float(total)
-
-        log_with_context(
-            logger,
-            level=logging.DEBUG,
-            message="yt-dlp progress update",
-            stage="DOWNLOAD",
-            job_id=job_id,
-            downloaded_bytes=downloaded,
-            total_bytes=total,
-            progress_percent=percent,
-            speed_bps=speed,
-        )
-
-        if session_factory is not None and job_id is not None:
-            update_job_progress(
-                session_factory,
-                job_id,
-                progress_percent=percent,
-                downloaded_bytes=downloaded,
-                total_bytes=total,
-                speed_bps=speed,
-            )
-
-        if extra_callback is not None:
-            try:
-                extra_callback(percent, downloaded, total, speed)
-            except Exception:
-                logger.exception("Progress callback failed", extra={"stage": "DOWNLOAD"})
-
-    return _hook
 
 
 def _map_yt_dlp_error_to_error_type(exc: Exception) -> tuple[ErrorType, Optional[int]]:
@@ -395,7 +348,9 @@ class YouTubeDownloader(BaseDownloader):
 
         thumbnail_path = _download_thumbnail_file(metadata.thumbnail_url, target_dir)
 
-        progress_hook = _yt_progress_hook(session_factory, job_id, progress_callback)
+        progress_hook = make_yt_progress_hook(
+            session_factory, job_id, extra_callback=progress_callback
+        )
         options["progress_hooks"] = [progress_hook]
 
         log_with_context(
