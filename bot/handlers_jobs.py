@@ -147,19 +147,6 @@ def _build_settings_keyboard(settings: ChatSettings) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def _status_refresh_keyboard(job_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    texts.status_refresh_button(job_id),
-                    callback_data=f"status|{job_id}",
-                )
-            ]
-        ]
-    )
-
-
 def _store_status_message_reference(
     job_id: int, chat_id: int | str, message_id: int | str, session_factory
 ) -> None:
@@ -183,7 +170,7 @@ def _schedule_status_updates(
     context.job_queue.run_repeating(
         refresh_job_status_callback,
         interval=3.0,
-        first=3.0,
+        first=2.0,
         name=f"job-status-{job_id}",
         data={
             "job_id": job_id,
@@ -219,7 +206,6 @@ async def refresh_job_status_callback(context: ContextTypes.DEFAULT_TYPE) -> Non
                 chat_id=chat_id,
                 message_id=message_id,
                 text=message_text,
-                reply_markup=_status_refresh_keyboard(job.id),
             )
         except BadRequest as exc:
             if "message is not modified" not in str(exc):
@@ -361,8 +347,7 @@ async def selection_callback_handler(update: Update, context: ContextTypes.DEFAU
             status_line,
         ]
     )
-    keyboard = _status_refresh_keyboard(job.id)
-    sent_message = await query.edit_message_text(message_text, reply_markup=keyboard)
+    sent_message = await query.edit_message_text(message_text)
     if sent_message:
         _store_status_message_reference(
             job.id, sent_message.chat_id, sent_message.message_id, session_factory
@@ -401,38 +386,6 @@ async def status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.callback_query.edit_message_text(message_text)
     elif update.effective_message:
         await update.effective_message.reply_text(message_text)
-
-
-async def refresh_status_callback_handler(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
-    query = update.callback_query
-    if not query:
-        return
-    await query.answer()
-    data = query.data or ""
-    parts = data.split("|")
-    if len(parts) < 2:
-        return
-    try:
-        job_id = int(parts[1])
-    except ValueError:
-        return
-
-    job_service = _get_job_service(context)
-    session_factory = _get_session_factory(context)
-    job = job_service.get_job_by_id(job_id)
-    if not job:
-        await query.edit_message_text(texts.NO_ACTIVE_JOBS_AR)
-        return
-
-    message_text = format_job_status(job)
-    keyboard = _status_refresh_keyboard(job.id)
-    if query.message:
-        _store_status_message_reference(
-            job.id, query.message.chat_id, query.message.message_id, session_factory
-        )
-    await query.edit_message_text(message_text, reply_markup=keyboard)
 
 
 async def settings_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

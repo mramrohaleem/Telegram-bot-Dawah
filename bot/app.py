@@ -14,7 +14,6 @@ from bot.handlers_basic import help_handler, ping_handler, start_handler
 from bot.handlers_jobs import (
     handle_media_link,
     rename_job_handler,
-    refresh_status_callback_handler,
     selection_callback_handler,
     settings_callback_handler,
     settings_handler,
@@ -52,9 +51,6 @@ def build_application(
             filters.TEXT & (filters.Entity("url") | filters.Entity("text_link")),
             handle_media_link,
         )
-    )
-    application.add_handler(
-        CallbackQueryHandler(refresh_status_callback_handler, pattern=r"^status\|")
     )
     application.add_handler(CallbackQueryHandler(status_handler, pattern=r"^status$"))
     application.add_handler(

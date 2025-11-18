@@ -239,6 +239,8 @@ def test_status_formatting_with_progress():
 
     assert "#7" in line
     assert "صوت" in line
+    assert "التقدم" in line
+    assert "█" in line
     assert "75%" in line
     assert "3.2 MB/s" in line
 

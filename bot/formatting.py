@@ -39,29 +39,47 @@ def _status_label(status: str | None) -> str:
     return status or "غير معروف"
 
 
+def _progress_bar(percent: float | None, length: int = 10) -> str:
+    if percent is None:
+        return f"[{'░' * length}]"
+    clamped = max(0.0, min(100.0, percent))
+    filled = int(round((clamped / 100.0) * length))
+    empty = max(0, length - filled)
+    return f"[{'█' * filled}{'░' * empty}]"
+
+
+def _speed_label(speed_bps: float | None) -> str | None:
+    if not speed_bps:
+        return None
+    mb_per_s = speed_bps / (1024 * 1024)
+    return f"{mb_per_s:.1f} MB/s"
+
+
 def format_job_status(job: Job) -> str:
-    """Return a concise, single-line job status summary in Arabic."""
+    """Return a detailed, multi-line job status summary in Arabic."""
 
     type_label = _type_label(job.job_type)
     quality_label = _quality_label(job.requested_quality)
-    percent_str = "-" if job.progress_percent is None else f"{job.progress_percent:.0f}%"
-
-    speed_bps = getattr(job, "download_speed_bps", None)
-    if speed_bps:
-        mb_per_s = speed_bps / (1024 * 1024)
-        speed_str = f"{mb_per_s:.1f} MB/s"
-    else:
-        speed_str = "-"
-
     status_text = _status_label(job.status)
+
     error_type = getattr(job, "error_type", None)
     if job.status == JobStatus.FAILED.value and error_type:
         reason = texts.failure_reason_label(error_type)
         if reason:
             status_text = f"{status_text} ({reason})"
 
-    return (
-        f"#{job.id} | {type_label} | {quality_label} | "
-        f"{percent_str} | {speed_str} | {status_text}"
-    )
+    header = f"#{job.id} | {type_label} | {quality_label}"
+    lines = [header, f"الحالة: {status_text}"]
+
+    bar = _progress_bar(getattr(job, "progress_percent", None))
+    if job.progress_percent is None:
+        lines.append(f"التقدم: {bar} -")
+    else:
+        lines.append(f"التقدم: {bar} {job.progress_percent:.0f}%")
+
+    speed_str = _speed_label(getattr(job, "download_speed_bps", None))
+    if speed_str:
+        lines.append(f"السرعة: {speed_str}")
+
+    return "\n".join(lines)
 

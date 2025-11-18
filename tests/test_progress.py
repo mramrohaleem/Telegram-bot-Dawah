@@ -35,6 +35,8 @@ def test_format_job_status_includes_progress_and_speed():
     assert "#5" in text
     assert "فيديو" in text
     assert "720p" in text
+    assert "التقدم" in text
+    assert "██" in text  # progress bar blocks
     assert "64%" in text
     assert "1.5 MB/s" in text
     assert "جاري التحميل" in text
