@@ -105,10 +105,6 @@ QUALITY_LABELS_AR = {
     "64k": "64 kbps",
 }
 
-
-def status_refresh_button(job_id: int | str) -> str:
-    return f"🔄 تحديث حالة الطلب #{job_id}"
-
 def quality_label(slug: str | None) -> str:
     if not slug:
         return "أفضل جودة"
