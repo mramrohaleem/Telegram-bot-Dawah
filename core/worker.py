@@ -247,6 +247,7 @@ async def _process_job(
             downloaded_bytes=0,
             total_bytes=None,
             speed_bps=None,
+            force=True,
         )
 
         result = _engine.download_job(
@@ -261,6 +262,7 @@ async def _process_job(
         )
 
         job.file_path = result.file_path
+        job.thumbnail_path = result.thumbnail_path
         if result.filesize:
             job.downloaded_bytes = result.filesize
             job.total_bytes = result.filesize
@@ -278,6 +280,7 @@ async def _process_job(
             downloaded_bytes=job.downloaded_bytes,
             total_bytes=job.total_bytes,
             speed_bps=None,
+            force=True,
         )
         maybe_archive_job_file(
             settings=settings,

@@ -149,25 +149,54 @@ async def _send_job_media(application: Application, job: Job) -> Message:
         filename=filename,
     )
 
-    with open(job.file_path, "rb") as fp:  # type: ignore[arg-type]
-        input_file = InputFile(fp, filename=filename)
-        if job_type == JobType.AUDIO:
-            return await application.bot.send_audio(
+    thumb_handle = None
+    try:
+        with open(job.file_path, "rb") as fp:  # type: ignore[arg-type]
+            input_file = InputFile(fp, filename=filename)
+            thumbnail_input: InputFile | None = None
+            if job.thumbnail_path and os.path.exists(job.thumbnail_path):
+                try:
+                    thumb_handle = open(job.thumbnail_path, "rb")
+                    thumbnail_input = InputFile(
+                        thumb_handle,
+                        filename=os.path.basename(job.thumbnail_path),
+                    )
+                except OSError as exc:
+                    log_with_context(
+                        logger,
+                        level=logging.WARNING,
+                        message="Failed to load thumbnail for delivery",
+                        stage="DELIVERY",
+                        job_id=job.id,
+                        thumbnail_path=job.thumbnail_path,
+                        error=str(exc),
+                    )
+                    thumb_handle = None
+
+            if job_type == JobType.AUDIO:
+                return await application.bot.send_audio(
+                    chat_id=job.chat_id,
+                    audio=input_file,
+                    caption=chosen_title,
+                    thumbnail=thumbnail_input,
+                )
+            if job_type == JobType.VIDEO:
+                return await application.bot.send_video(
+                    chat_id=job.chat_id,
+                    video=input_file,
+                    caption=chosen_title,
+                )
+            return await application.bot.send_document(
                 chat_id=job.chat_id,
-                audio=input_file,
+                document=input_file,
                 caption=chosen_title,
             )
-        if job_type == JobType.VIDEO:
-            return await application.bot.send_video(
-                chat_id=job.chat_id,
-                video=input_file,
-                caption=chosen_title,
-            )
-        return await application.bot.send_document(
-            chat_id=job.chat_id,
-            document=input_file,
-            caption=chosen_title,
-        )
+    finally:
+        if thumb_handle:
+            try:
+                thumb_handle.close()
+            except OSError:
+                pass
 
 
 async def send_job_media(application: Application, job: Job) -> Message:

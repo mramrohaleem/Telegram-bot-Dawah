@@ -52,6 +52,7 @@ def _apply_lightweight_migrations(engine: Engine) -> None:
             "total_bytes": "INTEGER",
             "download_speed_bps": "REAL",
             "last_progress_at": "DATETIME",
+            "thumbnail_path": "TEXT",
         }
 
         for column_name, column_def in migrations.items():

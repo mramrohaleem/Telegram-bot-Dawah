@@ -325,8 +325,9 @@ def update_job_progress(
     downloaded_bytes: Optional[int],
     total_bytes: Optional[int],
     speed_bps: Optional[float],
+    force: bool = False,
 ) -> None:
-    """Update progress metrics for a running job."""
+    """Update progress metrics for a running job with throttling."""
 
     session = session_factory()
     try:
@@ -334,13 +335,42 @@ def update_job_progress(
         job = repo.get_by_id(job_id)
         if job is None:
             return
+
+        now = datetime.utcnow()
+        last_percent = job.progress_percent
+        last_at = job.last_progress_at
+
+        if last_percent is None and progress_percent is None:
+            percent_changed = False
+        elif last_percent is None or progress_percent is None:
+            percent_changed = True
+        else:
+            percent_changed = abs(progress_percent - last_percent) >= 1.0
+        time_elapsed = (now - last_at).total_seconds() if last_at else None
+        interval_elapsed = time_elapsed is None or time_elapsed >= 1.5
+
+        if not force and not percent_changed and not interval_elapsed:
+            return
+
         job.progress_percent = progress_percent
         job.downloaded_bytes = downloaded_bytes
         job.total_bytes = total_bytes
         job.download_speed_bps = speed_bps
-        job.last_progress_at = datetime.utcnow()
+        job.last_progress_at = now
         session.add(job)
         session.commit()
+
+        log_with_context(
+            logger,
+            logging.INFO,
+            "Updated job progress",
+            stage="DOWNLOAD",
+            job_id=job_id,
+            progress_percent=progress_percent,
+            downloaded_bytes=downloaded_bytes,
+            total_bytes=total_bytes,
+            speed_bps=speed_bps,
+        )
     except Exception as exc:  # pragma: no cover - defensive logging
         session.rollback()
         log_with_context(

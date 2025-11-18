@@ -145,16 +145,9 @@ def _build_settings_keyboard(settings: ChatSettings) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def _progress_bar(percent: Optional[float]) -> str:
-    if percent is None:
-        return "[----------]"
-    filled = max(0, min(10, int(percent // 10)))
-    return f"[{'#' * filled}{'-' * (10 - filled)}]"
-
-
 def _format_speed(speed_bps: Optional[float]) -> str:
-    if not speed_bps:
-        return "--"
+    if speed_bps is None:
+        return "-"
     mb_per_sec = speed_bps / (1024 * 1024)
     return f"{mb_per_sec:.1f} MB/s"
 
@@ -168,24 +161,15 @@ def _format_status_line(job, *, include_progress: bool = False) -> str:
         if reason:
             status_label = f"{status_label} ({reason})"
 
-    if include_progress:
-        percent = job.progress_percent
-        percent_text = "??%" if percent is None else f"{percent:.0f}%"
-        progress = f"{_progress_bar(percent)} {percent_text}"
-        speed = _format_speed(job.download_speed_bps)
-        return texts.STATUS_LINE_WITH_PROGRESS_AR.format(
-            job_id=job.id,
-            media_type=media_label,
-            quality_label=quality_label,
-            progress=progress,
-            speed=speed,
-            status_label=status_label,
-        )
-
-    return texts.STATUS_LINE_AR.format(
+    percent = job.progress_percent
+    percent_text = "-" if percent is None else f"{percent:.0f}%"
+    speed = _format_speed(job.download_speed_bps)
+    return texts.STATUS_LINE_WITH_PROGRESS_AR.format(
         job_id=job.id,
         media_type=media_label,
         quality_label=quality_label,
+        percent=percent_text,
+        speed=speed,
         status_label=status_label,
     )
 
@@ -340,19 +324,14 @@ async def status_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if active_jobs:
         lines.append(texts.STATUS_HEADER_AR)
         for job in active_jobs:
-            include_progress = job.status in {
-                JobStatus.PENDING.value,
-                JobStatus.QUEUED.value,
-                JobStatus.RUNNING.value,
-            }
-            lines.append(_format_status_line(job, include_progress=include_progress))
+            lines.append(_format_status_line(job, include_progress=True))
     else:
         lines.append(texts.NO_ACTIVE_JOBS_AR)
 
     if recent_completed:
         lines.append(texts.RECENT_COMPLETED_HEADER_AR)
         for job in recent_completed:
-            lines.append(_format_status_line(job, include_progress=False))
+            lines.append(_format_status_line(job, include_progress=True))
 
     message_text = "\n".join(lines)
 
